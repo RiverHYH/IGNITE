@@ -1,4 +1,5 @@
 import av
+import av.error
 import numpy as np
 import logging
 
@@ -14,7 +15,7 @@ class CameraStream:
         resolution(str,optional): Resolution of the streaming. Default as "1920*1080"
         fps(str,optional): Frame rate of the streaming. Default as "30"
     """
-    def __init__(self, device_name:str, resolution:str="600x400", fps="30"):
+    def __init__(self, device_name:str, resolution:str="1920x1080", fps="30"):
         self.device_name = device_name
         self.options = {
             'video_size': resolution,
@@ -50,16 +51,16 @@ class CameraStream:
         if not self.container:
             self.start()
 
-        # Target the first video stream
-        video_stream = self.container.streams.video[0]
-        
         try:
+            video_stream = self.container.streams.video[0]
+            
             for frame in self.container.decode(video_stream):
                 # Convert to RGB numpy array for AI processing
                 yield frame.to_ndarray(format='rgb24')
-        except av.AVError as e:
-            logger.error(f"Stream interrupted: {e}")
-
+                
+        # Use av.error.FFmpegError or just a generic Exception
+        except (av.error.FFmpegError, Exception) as e:
+            logger.error(f"Stream interrupted or error encountered: {e}")
     def stop(self):
         """Graceful shutdown of the hardware connection."""
         if self.container:
@@ -77,16 +78,35 @@ class CameraStream:
 
 # --- Verification Block ---
 if __name__ == "__main__":
-    # This block only runs if you execute this file directly.
-    # Use it to test your camera connection.
     import cv2 
 
-    print("Starting test feed... Press 'q' to quit.")
-    with CameraStream(device_name="video=UGREEN-25854") as stream:
-        for frame in stream.frames():
-            # Convert RGB (PyAV) to BGR (OpenCV) for display
-            display_frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-            cv2.imshow("Pure Input Test", display_frame)
-            
-            if cv2.waitKey(1) & 0xFF == ord('q'):
-                break
+    print("Starting test feed...")
+    print("CRITICAL: Click the VIDEO WINDOW before pressing 'q' to quit.")
+    # 1. Create the named window FIRST
+    window_name = "Test Frame"
+    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL) 
+    
+    # 2. (Optional) Set a default size so it doesn't open full-screen
+    cv2.resizeWindow(window_name, 960, 540)
+    
+    try:
+        with CameraStream(device_name="video=UGREEN-25854") as stream:
+            for frame in stream.frames():
+                # Convert RGB (PyAV) to BGR (OpenCV)
+                display_frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+                
+                cv2.imshow(window_name, display_frame)
+                
+                # Increase waitKey to 10ms to give Windows more time to catch the event
+                key = cv2.waitKey(10) & 0xFF
+                if key == ord('q') or key == 27: # 'q' or ESC key
+                    print("Quitting...")
+                    break
+                    
+    except KeyboardInterrupt:
+        print("Interrupted by user (Ctrl+C).")
+    finally:
+        # These two lines ensure the window actually disappears
+        cv2.destroyAllWindows()
+        cv2.waitKey(1) 
+        print("Cleanup complete.")
