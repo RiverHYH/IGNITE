@@ -79,8 +79,11 @@ class CameraStream:
 # --- Verification Block ---
 if __name__ == "__main__":
     import cv2 
-
-    print("Starting test feed...")
+    from cameraList import list_cameras_windows
+    
+    
+    print(list_cameras_windows)
+    device=input("Starting test feed, type in the device number to select one available device:")
     print("CRITICAL: Click the VIDEO WINDOW before pressing 'q' to quit.")
     # 1. Create the named window FIRST
     window_name = "Test Frame"
@@ -90,7 +93,7 @@ if __name__ == "__main__":
     cv2.resizeWindow(window_name, 960, 540)
     
     try:
-        with CameraStream(device_name="video=UGREEN-25854") as stream:
+        with CameraStream(device_name=f"video={UGREEN-25854}") as stream:
             for frame in stream.frames():
                 # Convert RGB (PyAV) to BGR (OpenCV)
                 display_frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
@@ -104,7 +107,7 @@ if __name__ == "__main__":
                     break
                     
     except KeyboardInterrupt:
-        print("Interrupted by user (Ctrl+C).")
+        print("Interrupted by App Administrator.")
     finally:
         # These two lines ensure the window actually disappears
         cv2.destroyAllWindows()
