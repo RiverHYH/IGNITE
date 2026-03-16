@@ -1,0 +1,31 @@
+import subprocess
+import re
+
+def list_cameras_windows():
+    cmd = ['ffmpeg', '-list_devices', 'true', '-f', 'dshow', '-i', 'dummy']
+    result = subprocess.run(
+        cmd,
+        stderr=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        text=True,
+        encoding='utf-8',
+        errors='ignore'
+    )
+
+    lines = result.stderr.splitlines()
+    cameras = []
+
+    # 匹配类似：
+    # [dshow @ ...] "USB2.0 HD UVC WebCam" (video)
+    pattern = re.compile(r'\[dshow.*\]\s+"(.+)"\s+\((video)\)')
+
+    for line in lines:
+        match = pattern.search(line)
+        if match:
+            cameras.append(match.group(1))
+
+    return cameras
+
+
+if __name__=="__main__":
+    print(list_cameras_windows())
