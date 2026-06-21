@@ -1,0 +1,4 @@
+# Ignore all logs
+logs/
+# Ignore Raw YOLO Ouputs
+runs/
