@@ -4,3 +4,5 @@ logs/
 runs/
 # Ignore label cache files
 Dataset/**/*.cache
+# Ignore pycache
+__pycache__/
