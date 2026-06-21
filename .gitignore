@@ -2,3 +2,5 @@
 logs/
 # Ignore Raw YOLO Ouputs
 runs/
+# Ignore label cache files
+Dataset/**/*.cache
