@@ -1,2 +1,4 @@
 av
 opencv
+ultralytics==8.4.72
+torch==2.6.0+cu124
