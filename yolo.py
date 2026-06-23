@@ -31,10 +31,10 @@ if __name__=='__main__':
     print(test1.version)
     import torch
     print(torch.cuda.is_available())
-    Logger.info('unit test run')
+    Logger.info('Operator is conducting a Unit Test Run')
     test1.train(data='data.yaml',
-                epochs=2,
-                imgsz=320,
-                batch=4,     
+                epochs=10,
+                imgsz=480,
+                batch=8,     
                 device=0,
-                workers=2)
+                workers=6)
