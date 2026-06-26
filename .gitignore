@@ -7,3 +7,5 @@ Dataset/**/*.cache
 # Ignore pycache
 __pycache__/
 /.codebuddy
+Temp/
+temp.py
