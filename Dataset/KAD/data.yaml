@@ -1,0 +1,13 @@
+train: ../train/images
+val: ../valid/images
+test: ../test/images
+
+nc: 17
+names: ['Appliance_Dishwasher', 'Appliance_Fridge', 'Appliance_Microwave', 'Appliance_Oven', 'Appliance_Sink', 'Appliance_Stove', 'Cabinet_Flat', 'Cabinet_Glass', 'Cabinet_Inset', 'Cabinet_Raised_Panel', 'Cabinet_Shaker', 'Countertop_Concrete', 'Countertop_Granite', 'Countertop_Laminate', 'Countertop_Marble', 'Countertop_Solid_Surface', 'Countertop_Wood']
+
+roboflow:
+  workspace: river-zewlg
+  project: kitchen-rtzfe-hw8ht
+  version: dataset
+  license: CC BY 4.0
+  url: https://universe.roboflow.com/river-zewlg/kitchen-rtzfe-hw8ht/dataset/dataset
