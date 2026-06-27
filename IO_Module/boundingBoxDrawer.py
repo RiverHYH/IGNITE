@@ -35,7 +35,7 @@ def draw_predictions(img_path_or_array: Union[str, Any], predictions: List[Dict[
 
         # Assign high-contrast alert coloring (BGR system)
         # Uses explicit red for dangerous anomalies, clean green for environmental structural items
-        box_color = (0, 0, 255) if class_name.lower() in ["fire", "smoke"] else (0, 255, 0)
+        box_color = (0, 0, 255) if class_name.lower() in ["flame", "smoke"] else (0, 255, 0)
 
         # Draw the primary spatial bounding box rectangle
         cv2.rectangle(image, (xmin, ymin), (xmax, ymax), box_color, thickness=2)
