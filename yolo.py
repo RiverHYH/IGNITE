@@ -89,9 +89,9 @@ if __name__=='__main__':
         test_msg+=' The GPU is not available, therefore the test run is ran on CPU'
     Logger.info(test_msg)
     
-    test1.train(data='data.yaml',
-                epochs=10,
-                imgsz=480,
-                batch=8,     
+    test1.train(data='Dataset//KAD//data.yaml',
+                epochs=100,
+                imgsz=640,
+                batch=6,     
                 device=0,
                 workers=6)
