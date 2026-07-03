@@ -1,0 +1,10 @@
+# Home Fire Dataset for YOLO
+path: ./Dataset/HFDobj
+
+train: train/images
+val: val/images
+test: test/images
+
+nc: 17
+names: ['Appliance_Dishwasher', 'Appliance_Fridge', 'Appliance_Microwave', 'Appliance_Oven', 'Appliance_Sink', 'Appliance_Stove', 'Cabinet_Steel', 'Cabinet_Glass', 'Cabinet_Marble', 'Cabinet_Granite', 'Cabinet_Wood', 'Countertop_Concrete', 'Countertop_Granite', 'Countertop_Laminate', 'Countertop_Marble', 'Countertop_Solid_Surface', 'Countertop_Wood',"Appliance_GeneralElectronics","Furniture_Wood","Furniture_Leather","Furniture_Steel","Furniture_Fabric","Appliance_Fireplace","Human","Appliance_Bin"]
+
