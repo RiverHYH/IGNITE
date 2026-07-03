@@ -1,8 +1,8 @@
 # camera_stream.py
 import av
-import logging
+from logger import Logger
 
-logger = logging.getLogger(__name__)
+Logger = Logger()
 
 class CameraStream:
     def __init__(self, device_name: str, width=None, height=None, fps=None):
@@ -30,9 +30,9 @@ class CameraStream:
             )
             # pick first video stream
             self.stream = next(s for s in self.container.streams if s.type == "video")
-            logger.info(f"Connected to {self.device_name}")
+            Logger.info(f"Connected to {self.device_name}")
         except Exception as e:
-            logger.error(f"Failed to open device {self.device_name}: {e}")
+            Logger.error(f"Failed to open device {self.device_name}: {e}")
             raise
 
     def frames(self):
