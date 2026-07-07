@@ -1,8 +1,5 @@
-# camera_stream.py
 import av
 from logger import Logger
-
-Logger = Logger()
 
 class CameraStream:
     def __init__(self, device_name: str, width=None, height=None, fps=None):
@@ -69,11 +66,11 @@ if __name__ == "__main__":
     device_no = int(input("Select device index: "))
     device_name = cams[device_no]
 
-    print("CRITICAL: Click the VIDEO WINDOW before pressing 'Esc' to quit.")
+    Logger.debug("CRITICAL: Click the VIDEO WINDOW before pressing 'Esc' to quit.")
 
     window_name = "Test Frame"
     cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
-    cv2.resizeWindow(window_name, 960, 540)
+    cv2.resizeWindow(window_name, 960, 540)0
 
     # You can pass width/height/fps if you’ve probed them and know they’re valid
     with CameraStream(device_name=device_name) as stream:
