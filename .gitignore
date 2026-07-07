@@ -9,3 +9,4 @@ __pycache__/
 /.codebuddy
 Temp/
 temp.py
+*.bin
