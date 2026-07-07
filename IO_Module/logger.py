@@ -3,6 +3,7 @@ import sys
 import threading
 import queue
 from datetime import datetime,timezone
+import traceback
 
 
 class Logger:
@@ -62,17 +63,20 @@ class Logger:
     def error(cls, message: str):
         return cls._write("ERROR", message)
     @classmethod
-    def hook_keyboard_interrupt(cls):
-        
-
+    def hook_interruption(cls):
         def handle_exception(exc_type, exc_value, exc_traceback):
-            """Automatically log unhandled exceptions"""
-            if exc_type == KeyboardInterrupt:
-                cls._write("ERROR", "KeyboardInterrupt detected — process aborted by user or system")
+            if issubclass(exc_type, KeyboardInterrupt):
+                cls._write("ERROR", "KeyboardInterrupt detected — process aborted by user")
             else:
-                cls._write("ERROR", f"Unhandled exception: {exc_type.__name__}: {exc_value}")
+                # Format the full stack trace into a clean string
+                fmt_traceback = "".join(traceback.format_exception(exc_type, exc_value, exc_traceback))
+                cls._write("CRITICAL", f"Unhandled Exception:\n{fmt_traceback}")
 
+            # Ensure the background queue writes the crash data to disk before exiting!
+            cls._log_queue.join() 
+            
             sys.__excepthook__(exc_type, exc_value, exc_traceback)
+        
         sys.excepthook = handle_exception
     @classmethod
     def hook_stdout(cls):
