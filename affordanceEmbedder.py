@@ -2,13 +2,12 @@ import torch
 import torch.nn as nn
 from typing import List, Dict, Any
 
-class ZeroShotGeometricPredicateExtractor(nn.Module):
+class GeometricPredicateExtractor(nn.Module):
     def __init__(self, embedding_dim=64):
         super().__init__()
         self.d_dim = embedding_dim # 64 dims per coordinate coordinate projection = 256 total dims
         self.__predicates = ['is_in', 'is_on', 'is_near']
-        
-        # 1. Define ideal coordinates for the Anchor templates
+
         # Elements correspond to: [delta_x, delta_y, delta_w, delta_h]
         self.__ideal_coordinates = {
             'is_in':   torch.tensor([ 0.0,  0.0, -0.7, -0.7]), # Centered inside
@@ -83,7 +82,7 @@ class ZeroShotGeometricPredicateExtractor(nn.Module):
             
         return torch.cat(embeddings) # Concatenate 4 channels of 64 dims -> 256D Vector
 
-    def forward(self, box_f, box_o):
+    def get_predicate(self, box_f, box_o):
         """
         Inputs:
             box_f: Tensor [x_center, y_center, width, height]
@@ -114,3 +113,19 @@ class ZeroShotGeometricPredicateExtractor(nn.Module):
         winning_index = int(torch.argmax(similarities).item())
         
         return self.predicates[winning_index]
+    
+    
+    
+def concat(sub,predicate,obj):
+    """
+    structral text aggregator
+    Args:
+    sub(str): subject label
+    predicate(str): predicate
+    obj(str): object label
+    
+    Returns:
+        str: Concatenated sentence in the form "subject predicate object"
+    """
+    
+    return f"{sub} {predicate} {obj}"
