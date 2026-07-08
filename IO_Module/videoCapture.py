@@ -70,7 +70,7 @@ if __name__ == "__main__":
 
     window_name = "Test Frame"
     cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
-    cv2.resizeWindow(window_name, 960, 540)0
+    cv2.resizeWindow(window_name, 960, 540)
 
     # You can pass width/height/fps if you’ve probed them and know they’re valid
     with CameraStream(device_name=device_name) as stream:
