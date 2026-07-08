@@ -25,7 +25,7 @@ class YOLOModel:
         self.__fine_tuning = True
         return Logger.info('Base Model Training Complete.')
     
-    def predict(self, img, classes: List[Union[int, str]] = list(), use_tensors: bool = True, **kwargs) -> List[Dict[str, Any]]:
+    def predict(self, img, classes: List[Union[int, str]] = list(), use_tensors: bool = True, topk:int=4,**kwargs) -> List[Dict[str, Any]]:
         """
         Generates standardized, filtered bounding boxes for any customizable list of classes.
         
@@ -33,6 +33,7 @@ class YOLOModel:
             img: Input image matrix, canvas frame, or file path string.
             classes: Optional list of class strings or integer IDs to filter predictions.
             use_tensors: If True, leaves bboxes as GPU/CPU tensors for fast downstream geometric math.
+            topk: The number of topk predictions to return.
         """
         resolved_ids = None
         
@@ -70,8 +71,8 @@ class YOLOModel:
                 "bbox": xyxy_tensor[i],
                 "confidence": conf_tensor[i]
             })
-            
-        return parsed_boxes
+        topk=min(topk,len(parsed_boxes))    
+        return parsed_boxes[:topk]
     
     
     
