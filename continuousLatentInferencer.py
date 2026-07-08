@@ -39,6 +39,12 @@ class ContinuousLatentInferencer(StandardEncoder):
             print(f"No cache found. Processing source: {ref_triplets}")
             raw_data = self._resolve_and_validate_triplets(ref_triplets)
             self.__ref = self._compute_and_cache_embeddings(raw_data)
+            
+            
+        all_embeddings = [item["embedding"].squeeze() for item in self.__ref]
+        
+        # 2. Stack into a 2D matrix (M, 384) and cast to FP16 half precision for your RTX 3050 Ti
+        self.ref_matrix = torch.stack(all_embeddings).cuda().half()
 
     def _resolve_and_validate_triplets(self, source: Union[str, List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
         """Loads 'ref_triplets' dynamically from a file or validates a direct list."""
@@ -87,7 +93,6 @@ class ContinuousLatentInferencer(StandardEncoder):
                 print(f"Generating embedding for: '{item['triplet']}'...")
                 # Call the Father Class' encoding feature
                 item['embedding'] = self.encode(item['triplet'])
-                item['status'] = 1
                 updated = True
                 
         # Save to disk so this heavy work never runs again for these triplets
@@ -108,7 +113,7 @@ class ContinuousLatentInferencer(StandardEncoder):
         formatted_list = pprint.pformat(data, indent=4, sort_dicts=False)
             
         # Reconstruct the file content
-        code_content = f"# Generated automatically by ContinuousLatentInferencer\n\nref_triplets = {formatted_list}\n"
+        code_content = f"# Generated automatically by ContinuousLatentInferencer\n\nfrom torch import tensor\n\nref_triplets = {formatted_list}\n"
             
         with open(self.file_path, "w", encoding="utf-8") as f:
             f.write(code_content)
@@ -121,6 +126,43 @@ class ContinuousLatentInferencer(StandardEncoder):
     def embed(self,triplet):
         return self.encode(triplet)
     
+    def _cosine_similarity(self, runtime_triplet):
+        """
+        Parallel computation of cosine similarity scores against the entire matrix.
+        """
+        # Encode live text generated from Stage 3
+        qe = self.encode(runtime_triplet).cuda().half()
+        
+        # Normalize the live vector
+        query_embedding = qe / qe.norm(dim=-1, keepdim=True)
+        
+        # Parallel Matrix Multiplication: (M, 384) x (384, 1) -> (M,)
+        scores = torch.matmul(self.ref_matrix, query_embedding.T).squeeze(-1)
+        return scores
+
+    def _get_top_k(self, runtime_triplet, k=10):
+        # Guard rail against k requests larger than your reference inventory
+        k = min(k, len(self.__ref))
+        
+        # Execute vectorized similarity lookup
+        scores = self._cosine_similarity(runtime_triplet)
+        
+        # Compute top k values and their structural position indexes on the GPU
+        top_k = torch.topk(scores, k=k)
+        
+        indices = top_k.indices.tolist()
+        confidences = top_k.values.tolist()
+        
+        # 3. Construct rich, auditable outputs using matching indices
+        matched_triplets = []
+        matched_statuses = []
+        
+        for idx in indices:
+            matched_triplets.append(self.__ref[idx]['triplet'])
+            matched_statuses.append(self.__ref[idx]['status'])
+            
+        # Returns corresponding texts, numerical alert rules, and matching confidence scores
+        return matched_triplets, matched_statuses, confidences
     
     
     
@@ -128,3 +170,8 @@ class ContinuousLatentInferencer(StandardEncoder):
     
 if __name__ == "__main__":
     inferencer = ContinuousLatentInferencer()
+    triplets, statuses, confidences = inferencer._get_top_k("Flame inside gaslamp", k=1)
+    
+    print("Matched Reference Rules:", triplets)
+    print("Associated Action Statuses:", statuses)
+    print("Latent Confidence Metric:", confidences)

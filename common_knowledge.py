@@ -1,6 +1,8 @@
 # Generated automatically by ContinuousLatentInferencer
 
-ref_triplets = [   {   'status': 1,
+from torch import tensor
+
+ref_triplets = [   {   'status': 0,
         'triplet': 'Fire is_In Fireplace',
         'embedding': tensor([[-3.1420e-01,  5.9542e-02,  5.4360e-01, -4.3789e-01,  4.6089e-01,
          -9.8037e-02,  1.3593e-01,  1.3411e-01,  4.0761e-01,  1.4878e-02,
