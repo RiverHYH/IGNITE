@@ -140,7 +140,7 @@ class ContinuousLatentInferencer(StandardEncoder):
         scores = torch.matmul(self.ref_matrix, query_embedding.T).squeeze(-1)
         return scores
 
-    def _get_top_k(self, runtime_triplet, k=10):
+    def get_top_k(self, runtime_triplet, k=10):
         # Guard rail against k requests larger than your reference inventory
         k = min(k, len(self.__ref))
         
@@ -170,7 +170,7 @@ class ContinuousLatentInferencer(StandardEncoder):
     
 if __name__ == "__main__":
     inferencer = ContinuousLatentInferencer()
-    triplets, statuses, confidences = inferencer._get_top_k("Flame inside gaslamp", k=1)
+    triplets, statuses, confidences = inferencer.get_top_k("Flame inside gaslamp", k=1)
     
     print("Matched Reference Rules:", triplets)
     print("Associated Action Statuses:", statuses)
