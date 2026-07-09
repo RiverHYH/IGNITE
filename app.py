@@ -7,7 +7,7 @@ from IO_Module.videoCapture import CameraStream
 from IO_Module.boundingBoxDrawer import draw_predictions
 from yolo import YOLOModel
 from continuousLatentInferencer import ContinuousLatentInferencer
-from affordanceEmbedder import GeometricPredicateExtractor,concat
+from affordanceEmbedder import GeometricPredicateExtractor,generate_semantic_prompt
 
 
 class IGNITE:
@@ -96,7 +96,7 @@ class IGNITE:
                     return tuple()
                             
                 # Purpose: Stage 3 Symbolic Assembly
-                triplet = concat(subject, predicate, obj)
+                triplet = generate_semantic_prompt(subject, predicate, obj)
                 Logger.info(f"Triplet Identified: {triplet},parsing...")
                 # Purpose: Stage 4 Continuous Latent Inference
                 decision=self.__latent_inferencer.get_top_k(triplet,k=1)

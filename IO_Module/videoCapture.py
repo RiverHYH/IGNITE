@@ -1,5 +1,5 @@
 import av
-from logger import Logger
+from IO_Module.logger import Logger
 
 class CameraStream:
     def __init__(self, device_name: str, width=None, height=None, fps=None):
