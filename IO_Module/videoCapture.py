@@ -1,6 +1,7 @@
 import av
 from IO_Module.logger import Logger
 
+
 class CameraStream:
     def __init__(self, device_name: str, width=None, height=None, fps=None):
         self.device_name = device_name

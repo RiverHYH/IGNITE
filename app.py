@@ -9,6 +9,9 @@ from yolo import YOLOModel
 from continuousLatentInferencer import ContinuousLatentInferencer
 from affordanceEmbedder import GeometricPredicateExtractor,generate_semantic_prompt
 
+frame_counter = 0
+SKIP_FRAMES = 15 # Run AI inference every 10th frame
+
 
 class IGNITE:
     def __init__(self):
@@ -57,8 +60,16 @@ class IGNITE:
         with CameraStream(device_name=device_name) as stream:
             for frame in stream.frames():
                 bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+                # Only run the heavy AI pipeline periodically
+                if frame_counter % SKIP_FRAMES == 0:
+                    outcome=self._parse(bgr)
+                    if outcome:
+                        result=outcome[0]
+                        decision=outcome[1]
+                        draw_predictions(bgr,result,in_place=True)
+                        print(decision)
                 cv2.imshow(window_name, bgr)
-                key = cv2.waitKey(5) & 0xFF
+                key = cv2.waitKey(1) & 0xFF
                 if key== 27:
                     Logger.info("Sytem Shutting as Intended")
                     break
@@ -66,15 +77,30 @@ class IGNITE:
         cv2.destroyAllWindows()
                         
     def _parse(self,frame):
-        #purpose:Stage 1
-        fresult = self.__fire_model.predict(frame, conf=0.25)
-        oresult = self.__obj_model.predict(frame, conf=0.05)
-
-        # Pythonic check for empty lists
-        if not fresult or not oresult:
-        # If no fire or object is detected, there is no need to proceed
-            Logger.debug("Empty Frame elements. Or Potential Failure of Target Capturing. Proceeding")
+        
+       # 1. Run ONLY the fire model first (Fast pass)
+        fresult = self.__fire_model.predict(frame, conf=0.25,half=True,imgsz=640,vid_stride=True)
+        
+        # 2. Extract the actual detected boxes from the first results object
+        result=fresult
+        fire_detected = fresult[0]["class_id"]>-1 if fresult else False
+        # SHORT-CIRCUIT: If no fire is in the scene, drop the frame immediately
+        if not fire_detected:
+            Logger.debug("No fire localized in Perceptual Layer. Suppressing downstream computation.")
             return tuple()
+        
+        # 3. Heavy Pass: Only look for environmental assets if a fire hazard is present
+        oresult = self.__obj_model.predict(frame, conf=0.25,half=True,imgsz=640,vid_stride=True)
+        obj_detected = oresult[0]['class_id'] > -1 if oresult else False
+        result+=oresult
+        if not obj_detected:
+            Logger.debug("Fire present, but no context objects localized. Proceeding with caution.")
+            # Handle or return accordingly based on your Stage 2 expectations
+            # Pythonic check for empty lists
+            if not fresult or not oresult:
+            # If no fire or object is detected, there is no need to proceed
+                Logger.debug("Empty Frame elements. Or Potential Failure of Target Capturing. Proceeding")
+                return tuple()
 
                 # Cross-examine every detected fire element against every environment object
         for f_det in fresult:
@@ -102,7 +128,7 @@ class IGNITE:
                 decision=self.__latent_inferencer.get_top_k(triplet,k=1)
                 # Purpose: Stage 5 Final Decision
                 Logger.info(f"Matched Record: {decision[0]}\n Final_Decision: {decision[1]}\n Confidence: {decision[2]}")
-                return decision
+                return result,decision
                         
                     
                 
