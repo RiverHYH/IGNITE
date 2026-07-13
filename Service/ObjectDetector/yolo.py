@@ -18,6 +18,14 @@ class YOLOModel:
         self.__ver = version
         self.__yolo = YOLO(self.__ver)
         
+        
+    @property
+    def device(self):
+        return self.__yolo.device
+    @device.setter
+    def device(self, device: str):
+        self.__yolo.device = device
+        
     def train(self, data, epochs: int = 10, **kwargs):
         Logger.hook_stdout()
         Logger.info(f"Model {self.version} is Training...")

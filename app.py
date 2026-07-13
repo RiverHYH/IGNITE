@@ -17,10 +17,10 @@ class IGNITE:
     def __init__(self):
         Logger.info("IGNITE Preparing...")
         self.__obj_model = YOLOModel("Service//ObjectDetector//obj1.pt")
-        Logger.info("Object Detector Loaded")
+        Logger.info(f"Object Detector Loaded onto {self.__obj_model.device}")
         self.__fire_model = YOLOModel("Service//ObjectDetector//fire.pt")
         
-        Logger.info("Fire Detector Loaded")
+        Logger.info(f"Fire Detector Loaded onto {self.__fire_model.device}")
         self.__latent_inferencer = ContinuousLatentInferencer()
         self.__affordance_extractor = GeometricPredicateExtractor()
     
@@ -79,7 +79,7 @@ class IGNITE:
     def _parse(self,frame):
         
        # 1. Run ONLY the fire model first (Fast pass)
-        fresult = self.__fire_model.predict(frame, conf=0.25,half=True,imgsz=640,vid_stride=True)
+        fresult = self.__fire_model.predict(frame, conf=0.65,half=True,imgsz=640,vid_stride=True)
         
         # 2. Extract the actual detected boxes from the first results object
         result=fresult
