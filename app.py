@@ -5,9 +5,9 @@ import cv2
 from IO_Module.cameraList import list_cameras_windows
 from IO_Module.videoCapture import CameraStream
 from IO_Module.boundingBoxDrawer import draw_predictions
-from yolo import YOLOModel
-from continuousLatentInferencer import ContinuousLatentInferencer
-from affordanceEmbedder import GeometricPredicateExtractor,generate_semantic_prompt
+from Service.ObjectDetector.yolo import YOLOModel
+from Service.Semantic.continuousLatentInferencer import ContinuousLatentInferencer
+from Service.Predicate.affordanceEmbedder import GeometricPredicateExtractor,generate_semantic_prompt
 
 frame_counter = 0
 SKIP_FRAMES = 15 # Run AI inference every 10th frame
@@ -16,9 +16,9 @@ SKIP_FRAMES = 15 # Run AI inference every 10th frame
 class IGNITE:
     def __init__(self):
         Logger.info("IGNITE Preparing...")
-        self.__obj_model = YOLOModel("obj1.pt")
+        self.__obj_model = YOLOModel("Service//ObjectDetector//obj1.pt")
         Logger.info("Object Detector Loaded")
-        self.__fire_model = YOLOModel("fire.pt")
+        self.__fire_model = YOLOModel("Service//ObjectDetector//fire.pt")
         
         Logger.info("Fire Detector Loaded")
         self.__latent_inferencer = ContinuousLatentInferencer()

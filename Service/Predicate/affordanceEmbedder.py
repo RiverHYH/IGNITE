@@ -6,7 +6,7 @@ import torch
 import torch.nn as nn
 from IO_Module.logger import Logger
 
-from triplet2natural import PREDICATE_TEMPLATES
+from Service.affordanceEmbedder.triplet2natural import PREDICATE_TEMPLATES
 
 class GeometricPredicateExtractor(nn.Module):
     def __init__(self, embedding_dim=64):
