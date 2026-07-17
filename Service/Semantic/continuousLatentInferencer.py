@@ -22,7 +22,7 @@ class StandardEncoder:
     return outputs.last_hidden_state[:, 0, :]
 
 class ContinuousLatentInferencer(StandardEncoder):
-    def __init__(self, ref_triplets="common_knowledge.py", cache_file="triplets_cache.pkl"):
+    def __init__(self, ref_triplets="Service//Semantic//common_knowledge.py", cache_file="Service//Semantic//triplets_cache.pkl"):
         super().__init__()
         
         self.cache_path = pathlib.Path(cache_file)

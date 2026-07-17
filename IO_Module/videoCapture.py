@@ -12,9 +12,14 @@ class CameraStream:
         self.stream = None
 
     def start(self):
-        options = {}
+        # 1. Define base FFmpeg options passed directly to the demuxer
+        # 'rtbufsize' expands the camera ring buffer to 100MB to absorb processing delays
+        # 'fflags': 'nobuffer' tells FFmpeg to push packets through instantly without buffering
+        options = {
+            "rtbufsize": "50M"
+        }
 
-        # Only set options if explicitly requested
+        # Only append size and framerate if explicitly requested
         if self.width and self.height:
             options["video_size"] = f"{self.width}x{self.height}"
         if self.fps:
@@ -24,11 +29,13 @@ class CameraStream:
             self.container = av.open(
                 f"video={self.device_name}",
                 format="dshow",
-                options=options if options else None
+                options=options
             )
-            # pick first video stream
+            
+            # Pick first video stream
             self.stream = next(s for s in self.container.streams if s.type == "video")
-            Logger.info(f"Connected to {self.device_name}")
+            
+            Logger.info(f"Connected to {self.device_name} with 100MB DirectShow ring buffer.")
         except Exception as e:
             Logger.error(f"Failed to open device {self.device_name}: {e}")
             raise

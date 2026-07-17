@@ -3,10 +3,14 @@ from IO_Module.logger import Logger
 from typing import List, Union, Dict, Any
 
 class YOLOModel:
-    def __init__(self, version: str = "yolo26n.pt"):
+    def __init__(self, version: str = "yolo26n.pt",fine_tuning:bool=False,is_cuda:bool=True,**kwargs):
         self.__ver = version
-        self.__yolo = YOLO(self.__ver)
-        self.__fine_tuning = False
+        self.__fine_tuning=fine_tuning
+        self.__yolo = YOLO(self.__ver,**kwargs)
+        if is_cuda:
+            self.__yolo.to('cuda')
+            
+        
         
     @property
     def version(self):
@@ -22,9 +26,11 @@ class YOLOModel:
     @property
     def device(self):
         return self.__yolo.device
-    @device.setter
-    def device(self, device: str):
-        self.__yolo.device = device
+    
+    @property
+    def fine_tuned(self):
+        return self.__fine_tuning
+    
         
     def train(self, data, epochs: int = 10, **kwargs):
         Logger.hook_stdout()

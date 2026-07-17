@@ -19,7 +19,6 @@ class IGNITE:
         self.__obj_model = YOLOModel("Service//ObjectDetector//obj1.pt")
         Logger.info(f"Object Detector Loaded onto {self.__obj_model.device}")
         self.__fire_model = YOLOModel("Service//ObjectDetector//fire.pt")
-        
         Logger.info(f"Fire Detector Loaded onto {self.__fire_model.device}")
         self.__latent_inferencer = ContinuousLatentInferencer()
         self.__affordance_extractor = GeometricPredicateExtractor()
