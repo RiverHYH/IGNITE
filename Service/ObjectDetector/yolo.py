@@ -63,7 +63,7 @@ class YOLOModel:
                         Logger.info(f"Warning: Class '{c}' not found in model registry ({self.__ver}).")
                 elif isinstance(c, int):
                     resolved_ids.append(c)
-
+        kwargs["stream"] = False
         # Execute single instance forward pass
         results = self.__yolo.predict(img, classes=resolved_ids, verbose=False, **kwargs)
         
