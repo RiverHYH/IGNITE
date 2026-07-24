@@ -127,7 +127,7 @@ def RQ1(manifest: pd.DataFrame, yolo_instance: YOLOModel, ignite_instance: IGNIT
         + df_rq1.to_string(index=False) + "\n"
         + "=" * 65
     )
-    Logger.critical(report_str)
+    Logger.report(report_str)
     return df_rq1
 
 
@@ -207,7 +207,7 @@ def RQ2(manifest: pd.DataFrame, yolo_instance: YOLOModel, ignite_instance: IGNIT
         + summary_df.to_string(index=False) + "\n"
         + "=" * 65
     )
-    Logger.critical(report_str)
+    Logger.report(report_str)
 
     return {
         "y_true": np.array(oof_y_true),
@@ -264,9 +264,9 @@ def RQ3(oof_data: dict, alpha: float = 0.05):
         f" Decision       : {'STATISTICALLY SIGNIFICANT' if is_significant else 'NOT STATISTICALLY SIGNIFICANT'} (alpha = {alpha})\n"
         + "=" * 65
     )
-    Logger.critical(report_str)
+    Logger.report(report_str)
 
-
+def fetch_final_report():
 # =====================================================================
 # MAIN ENTRY POINT
 # =====================================================================
@@ -293,3 +293,6 @@ if __name__ == "__main__":
         RQ3(oof_data)
     else:
         Logger.error("Evaluation aborted: Dataset manifest is empty.")
+        
+        
+    

@@ -9,9 +9,12 @@ import traceback
 class Logger:
     
     LOG_DIR = "logs"
+    REPORT_DIR = "reports"
     
     # 5-second aggregation buffer states
-    _buffer = {}  # Schema: {(level, message): count}
+    _buffer = {}          # Operational logs schema: {(level, message): count}
+    _report_buffer = []   # Reports schema: [(timestamp, report_dir, message)]
+    
     _lock = threading.Lock()
     _flush_interval = 5.0
     _worker_started = False
@@ -39,6 +42,13 @@ class Logger:
         return os.path.join(cls.LOG_DIR, f"{utc_date}.log")
 
     @classmethod
+    def _get_report_path(cls, report_dir: str = None):
+        target_dir = report_dir if report_dir else cls.REPORT_DIR
+        os.makedirs(target_dir, exist_ok=True)
+        utc_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        return os.path.join(target_dir, f"{utc_date}_report.log")
+
+    @classmethod
     def _write(cls, level: str, message: str):
         cls._start_worker()
 
@@ -52,35 +62,76 @@ class Logger:
         return cls._get_log_path()
 
     @classmethod
+    def report(cls, message: str, report_dir: str = None):
+        """
+        Asynchronously buffers evaluation reports and writes them to a separate 
+        report file in the designated directory without deduplication corruption.
+        """
+        cls._start_worker()
+        target_dir = report_dir if report_dir else cls.REPORT_DIR
+        timestamp = datetime.now(timezone.utc).strftime("%H:%M:%S")
+
+        with cls._lock:
+            cls._report_buffer.append((timestamp, target_dir, message))
+
+        return cls._get_report_path(target_dir)
+
+    @classmethod
     def flush(cls):
         """
-        Gathers all compiled logs from the memory buffer cache, compresses 
-        repetitive lines, and commits them cleanly to physical storage.
+        Gathers all compiled logs and reports from memory buffers and 
+        commits them cleanly to physical storage files.
         """
         with cls._lock:
-            if not cls._buffer:
+            if not cls._buffer and not cls._report_buffer:
                 return
-            # Deep-copy and release the memory buffer immediately to prevent loop blockades
+            
+            # Deep-copy and release memory buffers immediately
             active_snapshots = cls._buffer
+            active_reports = cls._report_buffer
             cls._buffer = {}
+            cls._report_buffer = []
 
-        log_path = cls._get_log_path()
         timestamp = datetime.now(timezone.utc).strftime("%H:%M:%S")
-        
-        entries = []
-        for (level, message), count in active_snapshots.items():
-            if count > 1:
-                # Compresses repetitive entries using the requested format structure
-                entry = f"[{timestamp}] [{level}] {message}*{count}\n"
-            else:
-                entry = f"[{timestamp}] [{level}] {message}\n"
-            entries.append(entry)
 
-        try:
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.writelines(entries)
-        except Exception:
-            pass
+        # ---------------------------------------------------------
+        # 1. Flush Operational Logs
+        # ---------------------------------------------------------
+        if active_snapshots:
+            log_path = cls._get_log_path()
+            entries = []
+            for (level, message), count in active_snapshots.items():
+                if count > 1:
+                    entry = f"[{timestamp}] [{level}] {message}*{count}\n"
+                else:
+                    entry = f"[{timestamp}] [{level}] {message}\n"
+                entries.append(entry)
+
+            try:
+                with open(log_path, "a", encoding="utf-8") as f:
+                    f.writelines(entries)
+            except Exception:
+                pass
+
+        # ---------------------------------------------------------
+        # 2. Flush Evaluation Reports (Grouped by target directory)
+        # ---------------------------------------------------------
+        if active_reports:
+            reports_by_dir = {}
+            for ts, r_dir, msg in active_reports:
+                if r_dir not in reports_by_dir:
+                    reports_by_dir[r_dir] = []
+                
+                report_entry = f"[{ts}] [REPORT]\n{msg}\n\n"
+                reports_by_dir[r_dir].append(report_entry)
+
+            for r_dir, entries in reports_by_dir.items():
+                report_path = cls._get_report_path(r_dir)
+                try:
+                    with open(report_path, "a", encoding="utf-8") as f:
+                        f.writelines(entries)
+                except Exception:
+                    pass
 
     @classmethod
     def info(cls, message: str):
@@ -95,12 +146,8 @@ class Logger:
         return cls._write("ERROR", message)
     
     @classmethod
-    def critical(cls, message:str):
+    def critical(cls, message: str):
         return cls._write("CRITICAL", message)
-    
-    @classmethod
-    def report(cls, message:str):
-        return cls._write("REPORT", message)
 
     @classmethod
     def hook_interruption(cls):
@@ -111,10 +158,8 @@ class Logger:
                 fmt_traceback = "".join(traceback.format_exception(exc_type, exc_value, exc_traceback))
                 cls.critical(f"Unhandled Exception:\n{fmt_traceback}")
 
-            # CRITICAL: Force an immediate flush of the buffer so crash stack traces 
-            # are recorded instantly before the main Python application finishes exiting!
+            # Force an immediate flush of operational logs AND pending reports on process exit
             cls.flush() 
-            
             sys.__excepthook__(exc_type, exc_value, exc_traceback)
         
         sys.excepthook = handle_exception
