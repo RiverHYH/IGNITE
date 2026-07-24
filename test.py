@@ -266,7 +266,7 @@ def RQ3(oof_data: dict, alpha: float = 0.05):
     )
     Logger.report(report_str)
 
-def fetch_final_report():
+
 # =====================================================================
 # MAIN ENTRY POINT
 # =====================================================================
