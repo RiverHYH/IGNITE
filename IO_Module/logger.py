@@ -97,6 +97,10 @@ class Logger:
     @classmethod
     def critical(cls, message:str):
         return cls._write("CRITICAL", message)
+    
+    @classmethod
+    def report(cls, message:str):
+        return cls._write("REPORT", message)
 
     @classmethod
     def hook_interruption(cls):
