@@ -93,6 +93,10 @@ class Logger:
     @classmethod
     def error(cls, message: str):
         return cls._write("ERROR", message)
+    
+    @classmethod
+    def critical(cls, message:str):
+        return cls._write("CRITICAL", message)
 
     @classmethod
     def hook_interruption(cls):
@@ -101,7 +105,7 @@ class Logger:
                 cls._write("ERROR", "KeyboardInterrupt detected — process aborted by user")
             else:
                 fmt_traceback = "".join(traceback.format_exception(exc_type, exc_value, exc_traceback))
-                cls._write("CRITICAL", f"Unhandled Exception:\n{fmt_traceback}")
+                cls.critical(f"Unhandled Exception:\n{fmt_traceback}")
 
             # CRITICAL: Force an immediate flush of the buffer so crash stack traces 
             # are recorded instantly before the main Python application finishes exiting!
