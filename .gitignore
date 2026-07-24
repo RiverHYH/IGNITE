@@ -1,5 +1,5 @@
 # Ignore all logs
-logs/
+*.log
 # Ignore Raw YOLO Ouputs
 runs/
 # Ignore label cache files
@@ -10,4 +10,4 @@ __pycache__/
 Temp/
 temp.py
 *.bin
-.pkl
+*.pkl
