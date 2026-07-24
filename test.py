@@ -291,6 +291,7 @@ if __name__ == "__main__":
 
         # Run statistical significance test (RQ3) on out-of-fold predictions
         RQ3(oof_data)
+        Logger.flush()#A Insurance Method to Flush All Reports
     else:
         Logger.error("Evaluation aborted: Dataset manifest is empty.")
         
