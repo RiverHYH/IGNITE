@@ -85,7 +85,8 @@ class IGNITE:
             if outcome:
                 result=outcome[0]
                 decision=outcome[1]
-                draw_predictions(cv2.imread(img_path),result,output_path=str(path.parent)+f"{path.stem}_result.jpg")
+                result_path=str(path.parent)+f"{path.stem}_result.jpg" if result_path=="" else result_path
+                draw_predictions(cv2.imread(img_path),result,output_path=result_path)
                 Logger.report(f"IGNITE Inference Report\nMatched Record: {decision[0]}\n Final_Decision: {decision[1]}\n Confidence: {decision[2]}")
             else:
                 Logger.report(f"IGNITE Inference Report\n[ERROR]Failure to Generate Full Report,Please Trace Log")
