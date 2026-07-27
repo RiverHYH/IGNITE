@@ -56,3 +56,16 @@ Therefore, in order to reproduce testing results, the hardware should be equival
 The following packages are required to run the project:
 -  **FFMPEG**. FFMPEG is needed to enable the `Streaming` Regime. Please make sure your device is equipped with FFMPEG or install it from [here](https://www.ffmpeg.org/download.html).
 -  All Python Packages listed in `requirement.txt`. Please install them using `pip install -r requirement.txt`.
+
+## Usage(Demo)
+1. Execute `app.py` to run the demo. 
+   - To run under `Streaming` regime, set `streaming` to `True`.
+   - To run under `Static` regime, set `streaming` to `False`, pass the path to **ONE** JPG file in via `img_path=<path to image>` and provide the path.
+2. Follow the instructions on the console.
+3. To Exit the `Streaming` Regime, press `ESC`. `Static` Regime will automatically exit after Inferencing is done.
+
+
+## Usage(Reproduction of Experiment)
+1. Execute `test.py` to run the test. 
+2. Test will be conducted automatically.
+3. Test results will be saved in **reports** and **logs** folder as the date of experiment.

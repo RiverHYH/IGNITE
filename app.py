@@ -1,5 +1,5 @@
 # IGINIE Application Starts Here
-
+from typing import List
 from IO_Module.logger import Logger
 import cv2
 from IO_Module.cameraList import list_cameras_windows
@@ -8,7 +8,7 @@ from IO_Module.boundingBoxDrawer import draw_predictions
 from Service.ObjectDetector.yolo import YOLOModel
 from Service.Semantic.continuousLatentInferencer import ContinuousLatentInferencer
 from Service.Predicate.affordanceEmbedder import GeometricPredicateExtractor,generate_semantic_prompt
-
+from pathlib import Path
 frame_counter = 0
 SKIP_FRAMES = 15 # Run AI inference every 10th frame
 
@@ -49,31 +49,47 @@ class IGNITE:
         device_no = int(input("Select device index: "))
         device_name = cams[device_no]
         return device_name
-    def activate(self):
-        device_name=self._camera_select()
-        Logger.info(f"IGNITE Activated,receiving from {device_name}")
-        Logger.debug("CRITICAL: Click the VIDEO WINDOW before pressing 'Esc' to quit.")
-        window_name = "IGNITE"
-        cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
-        cv2.resizeWindow(window_name, 960, 540)
-        with CameraStream(device_name=device_name) as stream:
-            for frame in stream.frames():
-                bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-                # Only run the heavy AI pipeline periodically
-                if frame_counter % SKIP_FRAMES == 0:
-                    outcome=self._parse(bgr)
-                    if outcome:
-                        result=outcome[0]
-                        decision=outcome[1]
-                        draw_predictions(bgr,result,in_place=True)
-                        print(decision)
-                cv2.imshow(window_name, bgr)
-                key = cv2.waitKey(1) & 0xFF
-                if key== 27:
-                    Logger.info("Sytem Shutting as Intended")
-                    break
-                
-        cv2.destroyAllWindows()
+    def activate(self,streaming=False,img_path:str="",result_path:str=""):
+        if streaming:
+            device_name=self._camera_select()
+            Logger.info(f"IGNITE Activated,receiving from {device_name}")
+            Logger.debug("CRITICAL: Click the VIDEO WINDOW before pressing 'Esc' to quit.")
+            window_name = "IGNITE"
+            cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+            cv2.resizeWindow(window_name, 960, 540)
+            with CameraStream(device_name=device_name) as stream:
+                for frame in stream.frames():
+                    bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+                    # Only run the heavy AI pipeline periodically
+                    if frame_counter % SKIP_FRAMES == 0:
+                        outcome=self._parse(bgr)
+                        if outcome:
+                            result=outcome[0]
+                            decision=outcome[1]
+                            draw_predictions(bgr,result,in_place=True)
+                            print(decision)
+                    cv2.imshow(window_name, bgr)
+                    key = cv2.waitKey(1) & 0xFF
+                    if key== 27:
+                        Logger.info("Sytem Shutting as Intended")
+                        break
+                    
+            cv2.destroyAllWindows()
+        else:
+            if img_path=="":
+                Logger.error("IGNITE Activation Failed,No Image Path Provided")
+                return None
+            path=Path(img_path)
+            Logger.info(f"IGNITE Activated,receiving from {path.name}")
+            outcome=self._parse(img_path)
+            if outcome:
+                result=outcome[0]
+                decision=outcome[1]
+                draw_predictions(cv2.imread(img_path),result,output_path=str(path.parent)+f"{path.stem}_result.jpg")
+                Logger.report(f"IGNITE Inference Report\nMatched Record: {decision[0]}\n Final_Decision: {decision[1]}\n Confidence: {decision[2]}")
+            else:
+                Logger.report(f"IGNITE Inference Report\n[ERROR]Failure to Generate Full Report,Please Trace Log")
+
                         
     def _parse(self,frame):
         
@@ -131,7 +147,9 @@ class IGNITE:
                         
                     
                 
-                
+if __name__=='__main__':
+    test=IGNITE()
+    test.activate(streaming=True)        
                 
                 
                 

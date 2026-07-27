@@ -60,7 +60,7 @@ def predict_ignite(img: np.ndarray, ignite_instance: IGNITE) -> tuple[int, float
 
 
 def compute_metrics(y_true: np.ndarray, y_pred: np.ndarray, latencies: list[float]) -> dict:
-    """Computes safety metrics under the HSO protocol."""
+    """Computes safety metrics under the HSO protocol with division safeguards."""
     tp = np.sum((y_true == 1) & (y_pred == 1))
     fp = np.sum((y_true == 0) & (y_pred == 1))
     tn = np.sum((y_true == 0) & (y_pred == 0))
@@ -68,9 +68,16 @@ def compute_metrics(y_true: np.ndarray, y_pred: np.ndarray, latencies: list[floa
 
     total = len(y_true)
     accuracy = (tp + tn) / total if total > 0 else 0.0
+    
+    # False Alarm Rate = FP / (FP + TN)
     far = fp / (fp + tn) if (fp + tn) > 0 else 0.0
+    
+    # Precision = TP / (TP + FP)
     precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+    
+    # Recall (Sensitivity) = TP / (TP + FN)
     recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+    
     avg_latency = float(np.mean(latencies)) if len(latencies) > 0 else 0.0
 
     return {
@@ -78,7 +85,11 @@ def compute_metrics(y_true: np.ndarray, y_pred: np.ndarray, latencies: list[floa
         "FAR": far,
         "Precision": precision,
         "Recall": recall,
-        "Avg_Latency_ms": avg_latency
+        "Avg_Latency_ms": avg_latency,
+        "TP": int(tp),
+        "FP": int(fp),
+        "TN": int(tn),
+        "FN": int(fn)
     }
 
 
@@ -86,34 +97,42 @@ def compute_metrics(y_true: np.ndarray, y_pred: np.ndarray, latencies: list[floa
 # RESEARCH QUESTION EVALUATION FUNCTIONS
 # =====================================================================
 
-def RQ1(manifest: pd.DataFrame, yolo_instance: YOLOModel, ignite_instance: IGNITE) -> pd.DataFrame:
+def Test1(manifest: pd.DataFrame, yolo_instance: YOLOModel, ignite_instance: IGNITE) -> tuple[pd.DataFrame, dict]:
     """
-    RQ1: Baseline System Efficacy & Latency
-    Evaluates end-to-end performance across the full benchmark dataset.
+    T1: Baseline System Efficacy & Latency
+    Evaluates single-pass inference across the fully isolated benchmark dataset (D_HSO).
+    Returns summary DataFrame and raw prediction dictionaries for McNemar's test.
     """
-    Logger.info("Conducting RQ1: Baseline System Efficacy Evaluation...")
+    Logger.info("Conducting T1: Baseline System Efficacy Evaluation on Isolated Benchmark...")
 
-    y_true = manifest["y_oracle"].values
     paths = manifest["path"].values
+    y_oracle = manifest["y_oracle"].values
 
+    valid_y_true = []
     preds_yolo, preds_ignite = [], []
     lat_yolo, lat_ignite = [], []
 
-    for img_path in paths:
+    for img_path, y_true in zip(paths, y_oracle):
         img = cv2.imread(img_path)
         if img is None:
+            Logger.info(f"Warning: Could not read image at {img_path}")
             continue
 
         p_y, l_y = predict_yolo(img, yolo_instance)
         p_i, l_i = predict_ignite(img, ignite_instance)
 
+        valid_y_true.append(y_true)
         preds_yolo.append(p_y)
         preds_ignite.append(p_i)
         lat_yolo.append(l_y)
         lat_ignite.append(l_i)
 
-    m_yolo = compute_metrics(y_true, np.array(preds_yolo), lat_yolo)
-    m_ignite = compute_metrics(y_true, np.array(preds_ignite), lat_ignite)
+    y_true_arr = np.array(valid_y_true)
+    yolo_preds_arr = np.array(preds_yolo)
+    ignite_preds_arr = np.array(preds_ignite)
+
+    m_yolo = compute_metrics(y_true_arr, yolo_preds_arr, lat_yolo)
+    m_ignite = compute_metrics(y_true_arr, ignite_preds_arr, lat_ignite)
 
     df_rq1 = pd.DataFrame([
         {"System": "Standalone YOLO", **m_yolo},
@@ -128,15 +147,22 @@ def RQ1(manifest: pd.DataFrame, yolo_instance: YOLOModel, ignite_instance: IGNIT
         + "=" * 65
     )
     Logger.report(report_str)
-    return df_rq1
+
+    eval_data = {
+        "y_true": y_true_arr,
+        "y_yolo": yolo_preds_arr,
+        "y_ignite": ignite_preds_arr
+    }
+
+    return df_rq1, eval_data
 
 
-def RQ2(manifest: pd.DataFrame, yolo_instance: YOLOModel, ignite_instance: IGNITE, n_splits: int = 5) -> dict:
+def Test2(manifest: pd.DataFrame, yolo_instance: YOLOModel, ignite_instance: IGNITE, n_splits: int = 5) -> None:
     """
-    RQ2: Operational Stability via Cross-Validation
-    Runs Stratified Group K-Fold CV and returns pooled out-of-fold data for RQ3.
+    T2: Operational Stability via Cross-Validation
+    Runs Stratified (Group) K-Fold CV to measure stability and variance across subsets of D_HSO.
     """
-    Logger.info(f"Conducting RQ2: {n_splits}-Fold Cross-Validation & Stability Evaluation...")
+    Logger.info(f"Conducting T2: {n_splits}-Fold Cross-Validation & Stability Evaluation...")
 
     X = manifest["path"].values
     y = manifest["y_oracle"].values
@@ -153,17 +179,17 @@ def RQ2(manifest: pd.DataFrame, yolo_instance: YOLOModel, ignite_instance: IGNIT
         splits = list(splitter.split(X, y))
 
     fold_metrics_yolo, fold_metrics_ignite = [], []
-    oof_y_true, oof_y_yolo, oof_y_ignite = [], [], []
 
     for fold, (_, test_idx) in enumerate(splits, 1):
         Logger.info(f"Evaluating Fold {fold}/{n_splits}...")
         test_paths = X[test_idx]
         test_y = y[test_idx]
 
+        valid_test_y = []
         preds_yolo, preds_ignite = [], []
         lat_yolo, lat_ignite = [], []
 
-        for img_path in test_paths:
+        for img_path, y_true in zip(test_paths, test_y):
             img = cv2.imread(img_path)
             if img is None:
                 continue
@@ -171,20 +197,17 @@ def RQ2(manifest: pd.DataFrame, yolo_instance: YOLOModel, ignite_instance: IGNIT
             p_y, l_y = predict_yolo(img, yolo_instance)
             p_i, l_i = predict_ignite(img, ignite_instance)
 
+            valid_test_y.append(y_true)
             preds_yolo.append(p_y)
             preds_ignite.append(p_i)
             lat_yolo.append(l_y)
             lat_ignite.append(l_i)
 
-        m_yolo = compute_metrics(test_y, np.array(preds_yolo), lat_yolo)
-        m_ignite = compute_metrics(test_y, np.array(preds_ignite), lat_ignite)
+        m_yolo = compute_metrics(np.array(valid_test_y), np.array(preds_yolo), lat_yolo)
+        m_ignite = compute_metrics(np.array(valid_test_y), np.array(preds_ignite), lat_ignite)
 
         fold_metrics_yolo.append(m_yolo)
         fold_metrics_ignite.append(m_ignite)
-
-        oof_y_true.extend(test_y)
-        oof_y_yolo.extend(preds_yolo)
-        oof_y_ignite.extend(preds_ignite)
 
     df_yolo = pd.DataFrame(fold_metrics_yolo)
     df_ignite = pd.DataFrame(fold_metrics_ignite)
@@ -209,23 +232,17 @@ def RQ2(manifest: pd.DataFrame, yolo_instance: YOLOModel, ignite_instance: IGNIT
     )
     Logger.report(report_str)
 
-    return {
-        "y_true": np.array(oof_y_true),
-        "y_yolo": np.array(oof_y_yolo),
-        "y_ignite": np.array(oof_y_ignite)
-    }
 
-
-def RQ3(oof_data: dict, alpha: float = 0.05):
+def Test3(eval_data: dict, alpha: float = 0.05) -> None:
     """
-    RQ3: Statistical Significance via McNemar's Test
-    Evaluates off-diagonal discordant pairs across pooled out-of-fold predictions.
+    T3: Statistical Significance via McNemar's Test
+    Evaluates off-diagonal discordant pairs from isolated single-pass test predictions on D_HSO.
     """
-    Logger.info("Conducting RQ3: McNemar Statistical Significance Analysis...")
+    Logger.info("Conducting T3: McNemar Statistical Significance Analysis on Isolated Holdout Set...")
 
-    y_true = oof_data["y_true"]
-    y_yolo = oof_data["y_yolo"]
-    y_ignite = oof_data["y_ignite"]
+    y_true = eval_data["y_true"]
+    y_yolo = eval_data["y_yolo"]
+    y_ignite = eval_data["y_ignite"]
 
     yolo_correct = (y_yolo == y_true)
     ignite_correct = (y_ignite == y_true)
@@ -250,7 +267,7 @@ def RQ3(oof_data: dict, alpha: float = 0.05):
 
     report_str = (
         "\n" + "=" * 65 + "\n"
-        " RQ3: McNemar Statistical Significance Report\n"
+        " RQ3: McNemar Statistical Significance Report (Isolated D_HSO)\n"
         + "=" * 65 + "\n"
         f" Contingency Table Matrix:\n"
         f"   a (Both Correct)               : {a}\n"
@@ -272,8 +289,8 @@ def RQ3(oof_data: dict, alpha: float = 0.05):
 # =====================================================================
 
 if __name__ == "__main__":
-    SAFE_DIR = "Dataset/evaluation_slices/safe"
-    FIRE_DIR = "Dataset/evaluation_slices/fire_present_set"
+    SAFE_DIR = "Dataset//evaluation_slices//safe"
+    FIRE_DIR = "Dataset//evaluation_slices//fire_present_set//images"
     YOLO_WEIGHTS = "Service//ObjectDetector//fire.pt"
 
     Logger.info("Initializing perception backbones and IGNITE framework...")
@@ -283,17 +300,15 @@ if __name__ == "__main__":
     manifest = build_dataset_manifest(SAFE_DIR, FIRE_DIR)
 
     if len(manifest) > 0:
-        # Run baseline metrics (RQ1)
-        RQ1(manifest, yolo_instance, ignite_instance)
+        # Run baseline metrics on isolated holdout set (RQ1) and extract single-pass predictions
+        df_rq1, eval_data = Test1(manifest, yolo_instance, ignite_instance)
 
-        # Run stability cross-validation (RQ2) and capture out-of-fold predictions
-        oof_data = RQ2(manifest, yolo_instance, ignite_instance, n_splits=5)
+        # Run stability cross-validation (RQ2)
+        Test2(manifest, yolo_instance, ignite_instance, n_splits=10)
 
-        # Run statistical significance test (RQ3) on out-of-fold predictions
-        RQ3(oof_data)
-        Logger.flush()#A Insurance Method to Flush All Reports
+        # Run statistical significance test (RQ3) on direct single-pass holdout predictions
+        Test3(eval_data)
+        
+        Logger.flush()  # Insurance Method to Flush All Reports
     else:
         Logger.error("Evaluation aborted: Dataset manifest is empty.")
-        
-        
-    
