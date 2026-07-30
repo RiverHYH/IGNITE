@@ -11,36 +11,48 @@ It **must not** be used in real‑world safety‑critical deployments.
 
 
 ## Project Structure
-**IGNITE**
-├── **Dataset**
-│   ├── **HFD**:Original [Home Fire Dataset(HFD)](https://www.kaggle.com/datasets/pengbo00/home-fire-dataset)
-│   ├── **HFDobj**: Self-annotated Repurposed HFD
-│   ├── **KAD**: Source of HFDobj Annotations[(KAD)](https://universe.roboflow.com/cdd-workspace-oo6dk/kitchen-rtzfe)
-│   └── **evaluation_slices**: Human Safety Oracle
-├── **IO_Module**: Front-end Modules that handles the input and output of the system
-│   ├── `boundingBoxDrawer`: Renders Bounding Boxes 
-│   ├── `cameraList`: Lists All FFMPEG supported Camera 
-│   ├── `cameraSetting`: Gets/Sets Camera Settings
-│   ├── `logger`: Generates live Logs and Final Reports
-│   └── `videoCapture`: Captures Video from Camera, and funnels frames to back-end
-├── **README**
-├── **Service**
-│   ├── **ObjectDetector**
-│   │   ├── *`fire.pt`*: Fine-Tuned Fire Detection Pytorch Weightings
-│   │   ├── *`obj1.pt`*: Fine-Tuned Object Detection Pytorch Weightings
-│   │   └── `yolo`: Wraps around [YOLO26](https://github.com/ultralytics/yolo26), Handles Related Functionalities.
-│   ├── **Predicate**
-│   │   ├── `affordanceEmbedder`: Embeds Geospatial Relationships into Affordance Predicates. Uses global variable from `triplet2natural` to further map it to natural language.
-│   │   └── `triplet2natural`: Contains the mapping of Systematic Predicates to Natural Language.
-│   └── **Semantic**
-│       ├── `common_knowledge`: Contains Common Knowledge Base for the system
-│       └── `continuousLatentInferencer`:Wraps around [BAAI/BGE](https://huggingface.co/BAAI/bge-small-en-v1.5). Handles Vector Space Search and other Functionalities.
-├── `app`: Main Application File. Integrates Modules from `IO_Module`, `Service`.
-├── **logs**: **(Optional)**, Contains Logs from the System. Auto Generated in the first run.
-├── **reports**: **(Optional)**, Contains Reports from the System. Auto Generated in the first run.
-├── **requirement.txt**: Contains all the required packages for the system.
-└── `test`: Contains Testing Scripts. Use for Reproduction.
-
+```text
+IGNITE
+├── Dataset
+│   ├── HFD                     # Original Home Fire Dataset (Kaggle)
+│   ├── HFDobj                  # Self‑annotated repurposed HFD
+│   ├── KAD                     # Source of HFDobj annotations (Roboflow)
+│   └── evaluation_slices       # Human Safety Oracle
+│
+├── IO_Module                   # Front‑end input/output modules
+│   ├── boundingBoxDrawer       # Renders bounding boxes
+│   ├── cameraList              # Lists FFmpeg‑supported cameras
+│   ├── cameraSetting           # Gets/Sets camera settings
+│   ├── logger                  # Generates live logs and final reports
+│   └── videoCapture            # Captures video and streams frames to back‑end
+│
+├── README
+│
+├── Service
+│   ├── ObjectDetector
+│   │   ├── fire.pt             # Fine‑tuned fire detection weights
+│   │   ├── obj1.pt             # Fine‑tuned object detection weights
+│   │   └── yolo                # Wrapper around YOLO26
+│   │
+│   ├── Predicate
+│   │   ├── affordanceEmbedder  # Embeds geospatial relationships into predicates
+│   │   └── triplet2natural     # Maps systematic predicates to natural language
+│   │
+│   └── Semantic
+│       ├── common_knowledge    # Common knowledge base
+│       └── continuousLatentInferencer
+│                               # Wrapper around BAAI/BGE for vector search
+│
+├── app                         # Main application integrating IO_Module + Service
+│
+├── logs                        # Auto‑generated logs (optional)
+│
+├── reports                     # Auto‑generated reports (optional)
+│
+├── requirement.txt             # Python dependencies
+│
+└── test                        # Testing scripts for reproduction
+```
 
 ## Prerequisites
 ### Hardware
@@ -59,13 +71,13 @@ The following packages are required to run the project:
 
 ## Usage(Demo)
 1. Execute `app.py` to run the demo. 
-   - To run under `Streaming` regime, set `streaming=True`.
-   - To run under `Static` regime, set `streaming=False`, pass the path to **ONE** JPG file in via `img_path=<path to image>` and provide the path.
+   - To run under the `Streaming` regime, set `streaming=True`.
+   - To run under the `Static` regime, set `streaming=False`, pass the path to **ONE** JPG file via `img_path=<path to image>`, and provide the path.
 2. Follow the instructions on the console.
-3. To Exit the `Streaming` Regime, press `ESC`. `Static` Regime will automatically exit after Inferencing is done.
+3. To exit the `Streaming` Regime, press `ESC`. `Static` Regime will automatically exit after Inferencing is done.
 
 
 ## Usage(Reproduction of Experiment)
 1. Execute `test.py` to run the test. 
-2. Test will be conducted automatically.
+2. The test will be conducted automatically.
 3. Test results will be saved in **reports** and **logs** folder as the date of experiment.
