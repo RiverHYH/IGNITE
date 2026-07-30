@@ -9,12 +9,16 @@ from Service.ObjectDetector.yolo import YOLOModel
 from Service.Semantic.continuousLatentInferencer import ContinuousLatentInferencer
 from Service.Predicate.affordanceEmbedder import GeometricPredicateExtractor,generate_semantic_prompt
 from pathlib import Path
+import numpy as np
 frame_counter = 0
 SKIP_FRAMES = 15 # Run AI inference every 10th frame
 
 
 class IGNITE:
     def __init__(self):
+        """
+        Interface of 'Integrated Geospatial Navigation and Inference for Thermal Events'.
+        """
         Logger.info("IGNITE Preparing...")
         self.__obj_model = YOLOModel("Service//ObjectDetector//obj1.pt")
         Logger.info(f"Object Detector Loaded onto {self.__obj_model.device}")
@@ -25,19 +29,35 @@ class IGNITE:
     
     @property
     def object_detector(self):
+        """
+        Get the running object detector version.
+        """
         return self.__obj_model.version
     @object_detector.setter
     def object_detector(self, version: str):
+        """
+        Set the object detector version.
+        """
         self.__obj_model.version = version
         
     @property
     def fire_detector(self):
+        """
+        Get the running fire detector version.
+        """
         return self.__fire_model.version
     @fire_detector.setter
     def fire_detector(self, version: str):
+        """
+        Set the fire detector version.
+        """
         self.__fire_model.version = version
         
     def _camera_select(self):
+        """
+        Private Method. Select camera device from available options.
+        """
+        
         cams = list_cameras_windows()
         if not cams:
             Logger.error("Application Terminated Due to No video devices found.")
@@ -49,7 +69,16 @@ class IGNITE:
         device_no = int(input("Select device index: "))
         device_name = cams[device_no]
         return device_name
-    def activate(self,streaming=False,img_path:str="",result_path:str=""):
+    
+    def activate(self,streaming=False,img_path:str="",result_path:str="",**kwargs):
+        """
+        Initiate IGNITE Application
+        Args:
+            streaming (bool,optional): Whether to activate in streaming mode. Default to False
+            img_path (str,optional): Path to image file if not streaming. Default to Null
+            result_path (str,optional): Path to save results. Default to the same directory of input image
+            **kwargs: Additional arguments to pass to the YOLO detectors.
+        """
         if streaming:
             device_name=self._camera_select()
             Logger.info(f"IGNITE Activated,receiving from {device_name}")
@@ -62,7 +91,7 @@ class IGNITE:
                     bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
                     # Only run the heavy AI pipeline periodically
                     if frame_counter % SKIP_FRAMES == 0:
-                        outcome=self._parse(bgr)
+                        outcome=self._parse(bgr,conf=(0.25,0.65),**kwargs)
                         if outcome:
                             result=outcome[0]
                             decision=outcome[1]
@@ -92,21 +121,28 @@ class IGNITE:
                 Logger.report(f"IGNITE Inference Report\n[ERROR]Failure to Generate Full Report,Please Trace Log")
 
                         
-    def _parse(self,frame):
+    def _parse(self,frame,conf=(0.25,0.65),**kwargs):
+        """
+        Private Method. Parse the frame and generate the final report.
+        Args:
+            frame (ndarray | str): Frame to be passed into the YOLO models. Input image matrix, canvas frame, or file path string.
+            conf (tuple,optional): Confidence threshold for fire and object detection. Default to (0.25,0.65)
+            **kwargs: Additional arguments to pass to the YOLO detectors.
+        """
         
        # 1. Run ONLY the fire model first (Fast pass)
-        fresult = self.__fire_model.predict(frame, conf=0.65,half=True,imgsz=640,vid_stride=True)
+        fresult = self.__fire_model.predict(frame,conf=conf(0),**kwargs)
         
         # 2. Extract the actual detected boxes from the first results object
         result=fresult
         fire_detected = fresult[0]["class_id"]>-1 if fresult else False
-        # SHORT-CIRCUIT: If no fire is in the scene, drop the frame immediately
+        # PURPOSE:SHORT-CIRCUIT: If no fire is in the scene, drop the frame immediately
         if not fire_detected:
             Logger.debug("No fire localized in Perceptual Layer. Suppressing downstream computation.")
             return tuple()
         
-        # 3. Heavy Pass: Only look for environmental assets if a fire hazard is present
-        oresult = self.__obj_model.predict(frame, conf=0.25,half=True,imgsz=640,vid_stride=True)
+        # PURPOSE:Short-CIRCUIT: Only look for environmental assets if a fire hazard is present
+        oresult = self.__obj_model.predict(frame, conf=conf(1),**kwargs)
         obj_detected = oresult[0]['class_id'] > -1 if oresult else False
         result+=oresult
         if not obj_detected:
@@ -150,7 +186,9 @@ class IGNITE:
                 
 if __name__=='__main__':
     test=IGNITE()
-    test.activate(streaming=True)        
+    #kwargs are passed as a single dictionary to ensure readability 
+    test.activate(streaming=True,kwargs={"half":True,"imgsz":640,"vid_stride":True})
+           
                 
                 
                 

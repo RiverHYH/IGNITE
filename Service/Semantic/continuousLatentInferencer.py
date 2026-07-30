@@ -22,56 +22,92 @@ class StandardEncoder:
     return outputs.last_hidden_state[:, 0, :]
 
 class ContinuousLatentInferencer(StandardEncoder):
-    def __init__(self, ref_triplets="Service//Semantic//common_knowledge.py", cache_file="Service//Semantic//triplets_cache.pkl"):
+    def __init__(
+        self,
+        ref_triplets="Service//Semantic//common_knowledge.py",
+        cache_file="Service//Semantic//triplets_cache.pkl",
+    ):
         super().__init__()
-        
+
         self.cache_path = pathlib.Path(cache_file)
-        self.file_path=pathlib.Path(ref_triplets)
+        self.file_path = pathlib.Path(ref_triplets)
+        self.__ref= []
+        self.ref_matrix= None
+
+        # Initialise data loading and matrix generation
+        self._initialise_data()
+
+    def reset(self, dump_to_py: bool = True) -> None:
+        """
+        Private Method.
+        Ignores the existing pickle cache file, reloads the original reference triplets from the
+        source file, recalculates embeddings for all entries, updates the cache, and reinitialises
+        the GPU matrix.
+        Args:
+            dump_to_py (bool): Whether to dump the computed embeddings to a pickle cache file. Defaults to True.
+        """
+        Logger.info(f"Resetting cache. Bypassing existing pickle file and reloading source: {self.file_path}")
         
+        # 1. Read directly from the source Python file
+        raw_data = self._resolve_and_validate_triplets(self.file_path)
         
-        # 2. Try to load from binary cache first for maximum speed
+        # 2. Force recalculation of all embeddings and serialise to cache
+        self.__ref = self._compute_and_cache_embeddings(
+            raw_data, dump=dump_to_py, force_recompute=True
+        )
+        
+        # 3. Synchronise the updated GPU matrix
+        self._update_ref_matrix()
+        Logger.info("Reset complete and cache updated successfully.")
+
+    def _initialise_data(self) -> None:
+        """Private Method. Initialises data from binary cache if available, otherwise parses source triplets."""
         if self.cache_path.exists():
-            print(f"Loading pre-computed embeddings from cache: {self.cache_path}")
+            Logger.info(f"Loading pre-computed embeddings from cache: {self.cache_path}")
             with open(self.cache_path, "rb") as f:
                 self.__ref = pickle.load(f)
         else:
-            # 3. If no cache exists, parse the source file and generate them
-            print(f"No cache found. Processing source: {ref_triplets}")
-            raw_data = self._resolve_and_validate_triplets(ref_triplets)
+            Logger.critical(f"No cache found. Processing source: {self.file_path}")
+            raw_data = self._resolve_and_validate_triplets(self.file_path)
             self.__ref = self._compute_and_cache_embeddings(raw_data)
-            
-            
+
+        self._update_ref_matrix()
+
+    def _update_ref_matrix(self) -> None:
+        """Extracts embeddings and stacks them into a FP16 2D tensor on GPU."""
         all_embeddings = [item["embedding"].squeeze() for item in self.__ref]
-        
-        # 2. Stack into a 2D matrix (M, 384) and cast to FP16 half precision for your RTX 3050 Ti
         self.ref_matrix = torch.stack(all_embeddings).cuda().half()
 
-    def _resolve_and_validate_triplets(self, source: Union[str, List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
-        """Loads 'ref_triplets' dynamically from a file or validates a direct list."""
-        if isinstance(source, str):
+    def _resolve_and_validate_triplets(
+        self, source: Union[str, pathlib.Path, List[Dict[str, Any]]]
+    ) -> List[Dict[str, Any]]:
+        """
+        Loads 'ref_triplets' dynamically from a file path or validates a direct list.
+        """
+        if isinstance(source, (str, pathlib.Path)):
             file_path = pathlib.Path(source)
             if not file_path.exists():
                 raise FileNotFoundError(f"Source file '{file_path}' not found.")
-            
+
             spec = importlib.util.spec_from_file_location("external_triplets", file_path)
             if spec is None or spec.loader is None:
                 raise ImportError(f"Could not read layout of {file_path}")
-            
+
             module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(module)
-            
+
             if not hasattr(module, "ref_triplets"):
                 raise AttributeError(f"Could not find 'ref_triplets' inside {file_path.name}")
-            
+
             data = getattr(module, "ref_triplets")
         elif isinstance(source, list):
             data = source
         else:
-            raise TypeError("ref_triplets must be a file path string or a list of dicts.")
+            raise TypeError("ref_triplets must be a file path string, Path object, or a list of dicts.")
 
         if not self._validate_structure(data):
             raise ValueError("Invalid ref_triplets schema. Required keys: status, triplet, embedding")
-            
+
         return data
 
     def _validate_structure(self, data: Any) -> bool:
@@ -84,37 +120,45 @@ class ContinuousLatentInferencer(StandardEncoder):
                 return False
         return True
 
-    def _compute_and_cache_embeddings(self, data: List[Dict[str, Any]],dump=True) -> List[Dict[str, Any]]:
-        """Computes missing vectors and serializes the list to a file."""
+    def _compute_and_cache_embeddings(
+        self,
+        data: List[Dict[str, Any]],
+        dump: bool = True,
+        force_recompute: bool = False,
+    ) -> List[Dict[str, Any]]:
+        """
+        Computes missing vectors (or all vectors if force_recompute=True) and
+        serialises the list to cache.
+        """
         updated = False
-        
+
         for item in data:
-            if item['embedding'] is None:
+            if force_recompute or item.get("embedding") is None:
                 print(f"Generating embedding for: '{item['triplet']}'...")
-                # Call the Father Class' encoding feature
-                item['embedding'] = self.encode(item['triplet'])
+                # Call parent class encoding feature
+                item["embedding"] = self.encode(item["triplet"])
                 updated = True
-                
-        # Save to disk so this heavy work never runs again for these triplets
-        if updated:
+
+        # Save to disk so future executions avoid recalculation
+        if updated or force_recompute:
             with open(self.cache_path, "wb") as f:
                 pickle.dump(data, f)
             print(f"Successfully saved computed embeddings to cache: {self.cache_path}")
+
         if dump:
             self._write_back_to_py_file(data)
-            
+
         return data
 
     def _write_back_to_py_file(self, data: List[Dict[str, Any]]):
-        """Formats the live list back into clean Python code and overwrites the file."""
-        
-            
-        # Use pretty-print to format the list of dicts cleanly
+        """Formats the live list back into clean Python code and overwrites the source file."""
         formatted_list = pprint.pformat(data, indent=4, sort_dicts=False)
-            
-        # Reconstruct the file content
-        code_content = f"# Generated automatically by ContinuousLatentInferencer\n\nfrom torch import tensor\n\nref_triplets = {formatted_list}\n"
-            
+        code_content = (
+            "# Generated automatically by ContinuousLatentInferencer\n\n"
+            "from torch import tensor\n\n"
+            f"ref_triplets = {formatted_list}\n"
+        )
+
         with open(self.file_path, "w", encoding="utf-8") as f:
             f.write(code_content)
         Logger.info(f"Successfully updated source text file: {self.file_path.name}")

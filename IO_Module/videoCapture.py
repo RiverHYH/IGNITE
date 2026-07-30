@@ -17,6 +17,16 @@ class CameraStream:
         buffer_size: str = "100M",
         max_queue_size: int = 1
     ):
+        """
+        Threaded Camera Streaming Module
+        Args:
+            device_name: Name of the camera device. Defined by Windows Device Registry
+            width: Optional video width
+            height: Optional video height
+            fps: Optional frames per second
+            buffer_size: Video buffer size
+            max_queue_size: Maximum size of the frame queue
+        """
         self.device_name = device_name
         self.width = width
         self.height = height

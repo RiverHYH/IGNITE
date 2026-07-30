@@ -59,8 +59,8 @@ The following packages are required to run the project:
 
 ## Usage(Demo)
 1. Execute `app.py` to run the demo. 
-   - To run under `Streaming` regime, set `streaming` to `True`.
-   - To run under `Static` regime, set `streaming` to `False`, pass the path to **ONE** JPG file in via `img_path=<path to image>` and provide the path.
+   - To run under `Streaming` regime, set `streaming=True`.
+   - To run under `Static` regime, set `streaming=False`, pass the path to **ONE** JPG file in via `img_path=<path to image>` and provide the path.
 2. Follow the instructions on the console.
 3. To Exit the `Streaming` Regime, press `ESC`. `Static` Regime will automatically exit after Inferencing is done.
 

@@ -8,8 +8,8 @@ import traceback
 
 class Logger:
     
-    LOG_DIR = "logs"
-    REPORT_DIR = "reports"
+    LOG_DIR = "logs"# Set Default Directory
+    REPORT_DIR = "reports" #Set Default Directory
     
     # 5-second aggregation buffer states
     _buffer = {}          # Operational logs schema: {(level, message): count}
@@ -37,12 +37,15 @@ class Logger:
 
     @classmethod
     def _get_log_path(cls):
+        """
+        Returns the log file path for writing log messages.
+        """
         os.makedirs(cls.LOG_DIR, exist_ok=True)
         utc_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         return os.path.join(cls.LOG_DIR, f"{utc_date}.log")
 
     @classmethod
-    def _get_report_path(cls, report_dir: str = None):
+    def _get_report_path(cls, report_dir=None):
         target_dir = report_dir if report_dir else cls.REPORT_DIR
         os.makedirs(target_dir, exist_ok=True)
         utc_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -62,14 +65,16 @@ class Logger:
         return cls._get_log_path()
 
     @classmethod
-    def report(cls, message: str, report_dir: str = None):
+    def report(cls, message: str, report_dir = None):
         """
-        Asynchronously buffers evaluation reports and writes them to a separate 
-        report file in the designated directory without deduplication corruption.
+        Asynchronously buffers and writes evaluation reports to designated directory.
+        Args:
+            message (str): Report content.
+            report_dir (str, optional): Target directory for the report. Defaults to None (uses default report directory).
         """
         cls._start_worker()
         target_dir = report_dir if report_dir else cls.REPORT_DIR
-        timestamp = datetime.now(timezone.utc).strftime("%H:%M:%S")
+        timestamp = datetime.now(timezone.utc).strftime("%H:%M:%S")#Messages are reorded in Exact Time under UTC
 
         with cls._lock:
             cls._report_buffer.append((timestamp, target_dir, message))
@@ -135,22 +140,37 @@ class Logger:
 
     @classmethod
     def info(cls, message: str):
+        """
+        Tag Log Message as INFO
+        """
         return cls._write("INFO", message)
 
     @classmethod
     def debug(cls, message: str):
+        """
+        Tag Log Message as DEBUG
+        """
         return cls._write("DEBUG", message)
 
     @classmethod
     def error(cls, message: str):
+        """
+        Tag Log Message as ERROR
+        """
         return cls._write("ERROR", message)
     
     @classmethod
     def critical(cls, message: str):
+        """
+        Tag Log Message as CRITICAL
+        """
         return cls._write("CRITICAL", message)
 
     @classmethod
     def hook_interruption(cls):
+        """
+        Hooks the KeyboardInterrupt exception to flush logs and reports on process exit.
+        """
         def handle_exception(exc_type, exc_value, exc_traceback):
             if issubclass(exc_type, KeyboardInterrupt):
                 cls._write("ERROR", "KeyboardInterrupt detected — process aborted by user")
@@ -166,6 +186,9 @@ class Logger:
 
     @classmethod
     def hook_stdout(cls):
+        """
+        Hooks the standard output and error streams to capture and log YOLO messages.
+        """
         cls._start_worker()
 
         class StreamHook:
