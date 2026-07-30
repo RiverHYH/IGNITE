@@ -131,7 +131,7 @@ class IGNITE:
         """
         
        # 1. Run ONLY the fire model first (Fast pass)
-        fresult = self.__fire_model.predict(frame,conf=conf(0),**kwargs)
+        fresult = self.__fire_model.predict(frame,conf=conf[0],**kwargs)
         
         # 2. Extract the actual detected boxes from the first results object
         result=fresult
@@ -142,7 +142,7 @@ class IGNITE:
             return tuple()
         
         # PURPOSE:Short-CIRCUIT: Only look for environmental assets if a fire hazard is present
-        oresult = self.__obj_model.predict(frame, conf=conf(1),**kwargs)
+        oresult = self.__obj_model.predict(frame, conf=conf[1],**kwargs)
         obj_detected = oresult[0]['class_id'] > -1 if oresult else False
         result+=oresult
         if not obj_detected:
@@ -152,7 +152,9 @@ class IGNITE:
             if not fresult or not oresult:
             # If no fire or object is detected, there is no need to proceed
                 Logger.debug("Empty Frame elements. Or Potential Failure of Target Capturing. Proceeding")
-                return tuple()
+                decision=(["No Objects Detected"],[1],[0.0])#purpose: cautious alarm
+                Logger.info(f"Matched Record: {decision[0]}\n Final_Decision: {decision[1]}\n Confidence: {decision[2]}")
+                return result,decision
 
                 # Cross-examine every detected fire element against every environment object
         for f_det in fresult:

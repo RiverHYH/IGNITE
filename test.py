@@ -141,7 +141,7 @@ def Test1(manifest: pd.DataFrame, yolo_instance: YOLOModel, ignite_instance: IGN
 
     report_str = (
         "\n" + "=" * 65 + "\n"
-        " RQ1: Baseline System Efficacy Evaluation Report\n"
+        " T1: Baseline System Efficacy Evaluation Report\n"
         + "=" * 65 + "\n"
         + df_rq1.to_string(index=False) + "\n"
         + "=" * 65
@@ -225,7 +225,7 @@ def Test2(manifest: pd.DataFrame, yolo_instance: YOLOModel, ignite_instance: IGN
     summary_df = pd.DataFrame(summary_rows)
     report_str = (
         "\n" + "=" * 65 + "\n"
-        f" RQ2: Operational Stability ({n_splits}-Fold Mean ± Std Dev) Report\n"
+        f" T2: Operational Stability ({n_splits}-Fold Mean ± Std Dev) Report\n"
         + "=" * 65 + "\n"
         + summary_df.to_string(index=False) + "\n"
         + "=" * 65
@@ -267,7 +267,7 @@ def Test3(eval_data: dict, alpha: float = 0.05) -> None:
 
     report_str = (
         "\n" + "=" * 65 + "\n"
-        " RQ3: McNemar Statistical Significance Report (Isolated D_HSO)\n"
+        " T3: McNemar Statistical Significance Report (Isolated D_HSO)\n"
         + "=" * 65 + "\n"
         f" Contingency Table Matrix:\n"
         f"   a (Both Correct)               : {a}\n"
