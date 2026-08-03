@@ -11,7 +11,7 @@ from Service.Predicate.affordanceEmbedder import GeometricPredicateExtractor,gen
 from pathlib import Path
 import numpy as np
 frame_counter = 0
-SKIP_FRAMES = 15 # Run AI inference every 10th frame
+SKIP_FRAMES = 15
 
 
 class IGNITE:
@@ -70,16 +70,18 @@ class IGNITE:
         device_name = cams[device_no]
         return device_name
     
-    def activate(self,streaming=False,img_path:str="",result_path:str="",**kwargs):
+    def activate(self,streaming=False,img_path:str="",result_path:str="",skip_frames=15,**kwargs):
         """
         Initiate IGNITE Application
         Args:
             streaming (bool,optional): Whether to activate in streaming mode. Default to False
             img_path (str,optional): Path to image file if not streaming. Default to Null
             result_path (str,optional): Path to save results. Default to the same directory of input image
+            skip_frames (int,optional): Skip frames for faster inference. Default to 15
             **kwargs: Additional arguments to pass to the YOLO detectors.
         """
         if streaming:
+            SKIP_FRAMES=skip_frames
             device_name=self._camera_select()
             Logger.info(f"IGNITE Activated,receiving from {device_name}")
             Logger.debug("CRITICAL: Click the VIDEO WINDOW before pressing 'Esc' to quit.")

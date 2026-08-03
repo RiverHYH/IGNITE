@@ -13,3 +13,4 @@ pandas
 numpy
 statsmodels
 sklearn
+nvidia-ml-py3

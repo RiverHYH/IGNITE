@@ -8,8 +8,11 @@ from statsmodels.stats.contingency_tables import mcnemar
 
 from Service.ObjectDetector.yolo import YOLOModel
 from app import IGNITE
+from IO_Module.videoCapture import CameraStream
 from IO_Module.logger import Logger
-
+from IO_Module.throughputMonitor import PerformanceMonitor
+from IO_Module.cameraList import list_cameras_windows
+from IO_Module.boundingBoxDrawer import draw_predictions
 # =====================================================================
 # SHARED UTILITIES & METRIC COMPUTATION
 # =====================================================================
@@ -287,28 +290,147 @@ def Test3(eval_data: dict, alpha: float = 0.05) -> None:
 # =====================================================================
 # MAIN ENTRY POINT
 # =====================================================================
-
-if __name__ == "__main__":
+def runExperiment():
     SAFE_DIR = "Dataset//evaluation_slices//safe"
     FIRE_DIR = "Dataset//evaluation_slices//fire_present_set//images"
     YOLO_WEIGHTS = "Service//ObjectDetector//fire.pt"
-
+    
     Logger.info("Initializing perception backbones and IGNITE framework...")
     yolo_instance = YOLOModel(YOLO_WEIGHTS)
     ignite_instance = IGNITE()
-
+    
     manifest = build_dataset_manifest(SAFE_DIR, FIRE_DIR)
-
+    
     if len(manifest) > 0:
-        # Run baseline metrics on isolated holdout set (RQ1) and extract single-pass predictions
-        df_rq1, eval_data = Test1(manifest, yolo_instance, ignite_instance)
-
-        # Run stability cross-validation (RQ2)
-        Test2(manifest, yolo_instance, ignite_instance, n_splits=10)
-
-        # Run statistical significance test (RQ3) on direct single-pass holdout predictions
-        Test3(eval_data)
-        
-        Logger.flush()  # Insurance Method to Flush All Reports
+            # Run baseline metrics on isolated holdout set (RQ1) and extract single-pass predictions
+            df_rq1, eval_data = Test1(manifest, yolo_instance, ignite_instance)
+    
+            # Run stability cross-validation (RQ2)
+            Test2(manifest, yolo_instance, ignite_instance, n_splits=10)
+    
+            # Run statistical significance test (RQ3) on direct single-pass holdout predictions
+            Test3(eval_data)
+            
+            Logger.flush()  # Insurance Method to Flush All Reports
     else:
-        Logger.error("Evaluation aborted: Dataset manifest is empty.")
+            Logger.error("Evaluation aborted: Dataset manifest is empty.")
+            
+def runThruputPerformance(tframe=1000):
+    SKIP_FRAMES = 15
+    monitor = PerformanceMonitor()
+
+    # PURPOSE: For the purpose of monitoring each stage, the script isn't using activate() for full-pipeline execution.
+    cams = list_cameras_windows()
+    if not cams:
+        Logger.error("Application Terminated Due to No video devices found.")
+        exit(1)
+
+    print("Available Devices Are:")
+    for i, name in enumerate(cams):
+        print(f"[{i}]: {name}")
+
+    device_no = int(input("Select device index: "))
+    device_name = cams[device_no]
+
+    TARGET_TEST_FRAMES = tframe
+    frame_counter = 0
+
+    print(
+        f"[INFO] Running IGNITE performance audit for {TARGET_TEST_FRAMES} frames..."
+    )
+
+    application = IGNITE()
+    with CameraStream(device_name=device_name) as stream:
+        for frame in stream.frames():
+            t_loop_start = time.perf_counter()
+
+            # IO
+            t_io_start = time.perf_counter()
+            bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+            t_io_end = time.perf_counter()
+
+            # Inference
+            t_inf_start = time.perf_counter()
+            if frame_counter % SKIP_FRAMES == 0:
+                outcome = application._parse(bgr)
+            else:
+                outcome = None
+            t_inf_end = time.perf_counter()
+
+            # Drawing
+            t_draw_start = time.perf_counter()
+            if outcome:
+                result, decision = outcome
+                draw_predictions(bgr, result, in_place=True)
+            t_draw_end = time.perf_counter()
+
+            # Display
+            cv2.imshow("IGNITE", bgr)
+            key = cv2.waitKey(1) & 0xFF
+
+            # Loop end
+            t_loop_end = time.perf_counter()
+
+            # Latencies
+            io_ms = (t_io_end - t_io_start) * 1000
+            inf_ms = (t_inf_end - t_inf_start) * 1000
+            draw_ms = (t_draw_end - t_draw_start) * 1000
+            loop_ms = (t_loop_end - t_loop_start) * 1000
+
+            monitor.record_latency(io_ms, inf_ms, draw_ms, loop_ms)
+
+            # Memory Recording
+            mem_now = monitor.record_memory()
+
+            # GPU Recording (ADDED THIS)
+            gpu_mem_now, gpu_util_now = monitor.record_gpu()
+
+            # FPS
+            fps_now = monitor.record_fps(loop_ms)
+
+            # Drop detection
+            if monitor.detect_frame_drop(loop_ms):
+                print(
+                    f"[DROP] Frame {frame_counter}: {loop_ms:.2f} ms (FPS={fps_now:.2f})"
+                )
+
+            frame_counter += 1
+            if frame_counter >= TARGET_TEST_FRAMES or key == 27:
+                break
+
+    cv2.destroyAllWindows()
+
+    # Summary Generation (Include GPU stats if available)
+    gpu_summary = ""
+    if monitor.gpu_available and len(monitor.gpu_mem_usage) > 0:
+        gpu_summary = (
+            f"Peak GPU Memory: {max(monitor.gpu_mem_usage):.2f} MB\n"
+            f"GPU Memory Leak Detected: {monitor.detect_gpu_leak()}\n"
+        )
+
+    summary = (
+        "\n=== IGNITE PERFORMANCE SUMMARY ===\n"
+        f"Frames: {frame_counter}\n"
+        f"Mean FPS: {np.mean(monitor.fps):.2f}\n"
+        f"Peak CPU Memory: {max(monitor.mem_usage):.2f} MB\n"
+        f"CPU Memory Leak Detected: {monitor.detect_memory_leak()}\n"
+        f"{gpu_summary}"
+        "\nLatency Stats:\n"
+        "IO: " + str(monitor.stats(monitor.io_lat)) + "\n"
+        "Inference: " + str(monitor.stats(monitor.inf_lat)) + "\n"
+        "Draw: " + str(monitor.stats(monitor.draw_lat)) + "\n"
+        "Loop: " + str(monitor.stats(monitor.loop_lat))
+    )
+    Logger.report(summary)
+    Logger.flush()
+
+    # Plotting (Will now populate GPU graphs)
+    monitor.plot(
+        save_path="reports/run_thru.png",
+        kwargs={"RAM": 16, "VRAM": 4, "TargetFPS": 30},
+    )
+    return None
+
+
+if __name__ == "__main__":
+    runThruputPerformance()
