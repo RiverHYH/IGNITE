@@ -4,10 +4,10 @@ import pickle
 from typing import Union, List, Dict, Any
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoModel
 import torch
+import sys,os
 from IO_Module.logger import Logger
 
 import pprint
-
 
 
 class StandardEncoder:
@@ -214,6 +214,7 @@ class ContinuousLatentInferencer(StandardEncoder):
     
 if __name__ == "__main__":
     inferencer = ContinuousLatentInferencer()
+    inferencer.reset()
     triplets, statuses, confidences = inferencer.get_top_k("Flame inside gaslamp", k=1)
     
     print("Matched Reference Rules:", triplets)

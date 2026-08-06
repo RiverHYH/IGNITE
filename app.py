@@ -25,7 +25,7 @@ class IGNITE:
         self.__fire_model = YOLOModel("Service//ObjectDetector//fire.pt")
         Logger.info(f"Fire Detector Loaded onto {self.__fire_model.device}")
         self.__latent_inferencer = ContinuousLatentInferencer()
-        self.__affordance_extractor = GeometricPredicateExtractor()
+        self.__affordance_extractor:GeometricPredicateExtractor = GeometricPredicateExtractor()
     
     @property
     def object_detector(self):
@@ -123,7 +123,7 @@ class IGNITE:
                 Logger.report(f"IGNITE Inference Report\n[ERROR]Failure to Generate Full Report,Please Trace Log")
 
                         
-    def _parse(self,frame,conf=(0.25,0.65),**kwargs):
+    def _parse(self,frame,conf=(0.25,0.50),**kwargs):
         """
         Private Method. Parse the frame and generate the final report.
         Args:
@@ -171,7 +171,7 @@ class IGNITE:
                 obj = oname
                             
                 # Purpose: Stage 2 Geometric Inference
-                predicate = self.__affordance_extractor.get_predicate(fbox, obox)
+                predicate,*_ = self.__affordance_extractor.get_predicate(fbox,obox)
                         
                 if predicate not in self.__affordance_extractor.predicates:
                     Logger.debug(f"Predicate {predicate} not in affordance extractor")

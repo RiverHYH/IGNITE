@@ -3,16 +3,26 @@ import time
 import cv2
 import numpy as np
 import pandas as pd
+
+import torch
+
 from sklearn.model_selection import StratifiedGroupKFold, StratifiedKFold
 from statsmodels.stats.contingency_tables import mcnemar
 
+from PIL import Image
+from typing import Callable, Any
+import argparse
+
 from Service.ObjectDetector.yolo import YOLOModel
+from Service.Predicate.affordanceEmbedder import GeometricPredicateExtractor
 from app import IGNITE
 from IO_Module.videoCapture import CameraStream
 from IO_Module.logger import Logger
 from IO_Module.throughputMonitor import PerformanceMonitor
 from IO_Module.cameraList import list_cameras_windows
 from IO_Module.boundingBoxDrawer import draw_predictions
+
+
 # =====================================================================
 # SHARED UTILITIES & METRIC COMPUTATION
 # =====================================================================
@@ -286,8 +296,308 @@ def Test3(eval_data: dict, alpha: float = 0.05) -> None:
     )
     Logger.report(report_str)
 
+def Test4(manifest_df: pd.DataFrame, ignite_pipeline=IGNITE()) -> dict:
+    """
+    Evaluates Outer Branch Collapse Rate (OBCR) using counterfactual occlusion.
+    Filters outcome[0] for 'flame' and 'smoke' classes to build full hazard ROI masks.
+    
+    Args:
+        manifest_df (pd.DataFrame): Dataset manifest from `build_dataset_manifest`.
+        ignite_pipeline: Pipeline instance implementing `._parse(image)`.
+                        
+    Returns:
+        dict: Metric dictionary containing `summary_str` and `details_df`.
+    """
+    Logger.info("Initiating Counterfactual Occlusion Probing (OBCR)...")
+    
+    # Filter strictly for ground-truth hazard instances (y_oracle == 1)
+    pos_df = manifest_df[manifest_df["y_oracle"] == 1].copy()
+    if pos_df.empty:
+        Logger.info("Warning: No positive hazard instances found in manifest.")
+        return {"obcr": 0.0, "total_tested": 0, "collapsed_count": 0, "details_df": pd.DataFrame()}
 
-# =====================================================================
+    total_valid_probes = 0
+    collapsed_count = 0
+    records = []
+
+    for _, row in pos_df.iterrows():
+        img_path = row["path"]
+        img = cv2.imread(img_path)
+        if img is None:
+            Logger.info(f"Warning: Failed to read image — {img_path}")
+            continue
+
+        h, w, _ = img.shape
+
+        # 1. Baseline Inference Pass via _parse()
+        try:
+            outcome = ignite_pipeline._parse(img, (0.25, 0.5))
+            
+            # Safely extract detections list from outcome[0]
+            detections = outcome[0] if isinstance(outcome, (tuple, list)) and len(outcome) > 0 else []
+            
+            # Safely navigate nested decision y_orig from outcome[1][1][0]
+            y_orig = None
+            if len(outcome) > 1 and isinstance(outcome[1], (tuple, list)) and len(outcome[1]) > 1:
+                if isinstance(outcome[1][1], (tuple, list)) and len(outcome[1][1]) > 0:
+                    y_orig = outcome[1][1][0]
+
+        except (IndexError, TypeError, AttributeError) as e:
+            Logger.info(f"Warning: Baseline output parsing error on frame {img_path} — {e}")
+            continue
+
+        # Extract all hazard bounding boxes matching 'flame' or 'smoke'
+        b_fire_list = [
+            item for item in detections 
+            if isinstance(item, dict) and item.get("class_name") in ("flame", "smoke")
+        ]
+
+        # Skip false-negative baselines (must have active baseline alert + detected hazard items)
+        if y_orig != 1 or not b_fire_list:
+            continue
+
+        # 2. Counterfactual Masking Pass (I_i^occ)
+        img_occ = img.copy()
+        
+        for item in b_fire_list:
+            bbox_data = item.get("bbox")
+            if bbox_data is None:
+                continue
+
+            # Transfer CUDA tensors to CPU list before casting
+            if isinstance(bbox_data, torch.Tensor):
+                bbox_coords = bbox_data.detach().cpu().squeeze().tolist()
+            else:
+                bbox_coords = bbox_data
+
+            # Guard against unexpected index/tuple lengths during unpacking
+            if not isinstance(bbox_coords, (tuple, list)) or len(bbox_coords) < 4:
+                continue
+
+            x1, y1, x2, y2 = map(int, bbox_coords[:4])
+
+            # Clamp bounding box coordinates to image boundaries
+            x1, y1 = max(0, x1), max(0, y1)
+            x2, y2 = min(w, x2), min(h, y2)
+
+            img_occ[y1:y2, x1:x2] = 0  # Zero out detected hazard ROI
+
+        # 3. Probe Inference Pass on Occluded Frame via _parse()
+        try:
+            # Maintained threshold parameters (0.25, 0.5) consistently with baseline pass
+            outcome_occ = ignite_pipeline._parse(img_occ, (0.25, 0.5))
+            
+            # Safely navigate nested decision y_occ from outcome_occ[1][1][0]
+            y_occ = 0  # Default to 0 (collapsed/safe) if missing
+            if isinstance(outcome_occ, (tuple, list)) and len(outcome_occ) > 1:
+                if isinstance(outcome_occ[1], (tuple, list)) and len(outcome_occ[1]) > 1:
+                    if isinstance(outcome_occ[1][1], (tuple, list)) and len(outcome_occ[1][1]) > 0:
+                        y_occ = outcome_occ[1][1][0]
+
+        except (IndexError, TypeError, AttributeError) as e:
+            Logger.info(f"Warning: Occluded pass output parsing error on frame {img_path} — {e}")
+            continue
+
+        # 4. Check for Outer Branch Collapse (\hat{Y}_IGNITE(I^occ) == 0)
+        is_collapsed = (y_occ == 0)
+        
+        total_valid_probes += 1
+        if is_collapsed:
+            collapsed_count += 1
+
+        records.append({
+            "path": img_path,
+            "group_id": row.get("group_id", None),
+            "y_orig": y_orig,
+            "y_occ": y_occ,
+            "hazards_masked": len(b_fire_list),
+            "collapsed": is_collapsed
+        })
+
+    # Calculate final dataset metric
+    obcr_score = (collapsed_count / total_valid_probes) if total_valid_probes > 0 else 0.0
+    
+    # Formatted print-out string report
+    final_result = (
+        "\n==================================================\n"
+        "    IGNITE Diagnostic Evaluation: OBCR Probing    \n"
+        "==================================================\n"
+        f" Ground-Truth Hazard Instances Loaded : {len(pos_df)}\n"
+        f" Active Baseline Probes Executed      : {total_valid_probes}\n"
+        f" Successfully Collapsed Alerts        : {collapsed_count}\n"
+        f" Outer Branch Collapse Rate (OBCR)    : {obcr_score * 100:.2f}%\n"
+        "=================================================="
+    )
+
+    # Log structured string summary
+    Logger.report(final_result)
+
+    return {
+        "obcr": obcr_score,
+        "total_tested": total_valid_probes,
+        "collapsed_count": collapsed_count,
+        "summary_str": final_result,
+        "details_df": pd.DataFrame(records)
+    }
+    
+def Test5(
+    manifest_df: pd.DataFrame,
+    fire_detector: Any,
+    obj_detector: Any,
+    tau_margin: float = 0.15,
+    max_logged_violations: int = 15,
+    device: str = "cpu",
+) -> dict[str, Any]:
+    """
+    Evaluates Predicate Confidence Margin (\Delta_margin) using deterministic
+    temperature-scaled outputs from GeometricPredicateExtractor.
+    """
+    Logger.info("Initialising zero-shot GeometricPredicateExtractor diagnostic audit...")
+    extractor = GeometricPredicateExtractor().to(device)
+    extractor.eval()
+
+    all_margins = []
+    violation_records = []
+    ued_violations = 0
+    total_pairs_evaluated = 0
+    active_frames = 0
+
+    for _, row in manifest_df.iterrows():
+        img_path = row["path"]
+
+        if not os.path.exists(img_path):
+            continue
+
+        try:
+            with Image.open(img_path) as img:
+                img_w, img_h = img.size
+        except Exception as e:
+            Logger.info(f"Failed to open image {img_path}: {e}")
+            continue
+
+        # Execute dual detector predictions
+        fire_detections = fire_detector.predict(img_path)
+        obj_detections = obj_detector.predict(img_path)
+
+        if not fire_detections or not obj_detections:
+            continue
+
+        active_frames += 1
+
+        # Scale raw pixel coordinates to normalized [0, 1] XYXY float32 Tensors
+        norm_scale = torch.tensor([img_w, img_h, img_w, img_h], dtype=torch.float32, device=device)
+
+        boxes_f = [
+            (det["bbox"].to(device).float() if isinstance(det["bbox"], torch.Tensor)
+             else torch.tensor(det["bbox"], dtype=torch.float32, device=device)) / norm_scale
+            for det in fire_detections
+        ]
+
+        boxes_o = [
+            (det["bbox"].to(device).float() if isinstance(det["bbox"], torch.Tensor)
+             else torch.tensor(det["bbox"], dtype=torch.float32, device=device)) / norm_scale
+            for det in obj_detections
+        ]
+
+        gt_pred = row.get("gt_predicate", None)
+        if pd.isna(gt_pred) or gt_pred not in extractor.predicates:
+            gt_pred = None
+
+        with torch.no_grad():
+            for f_idx, box_f in enumerate(boxes_f):
+                for o_idx, box_o in enumerate(boxes_o):
+                    # Direct signature call: returns (pred_class, margin, sim_dict)
+                    pred_class, margin, sim_dict = extractor.get_predicate(
+                        box_f=box_f,
+                        box_o=box_o,
+                        gt_predicate=gt_pred,
+                    )
+
+                    margin_val = float(margin)
+                    all_margins.append(margin_val)
+                    total_pairs_evaluated += 1
+
+                    # Extract target vs competitor probabilities directly from sim_dict
+                    if gt_pred is not None:
+                        s_target = sim_dict[gt_pred]
+                        s_comp = max(v for k, v in sim_dict.items() if k != gt_pred)
+                    else:
+                        sorted_probs = sorted(sim_dict.values(), reverse=True)
+                        s_target = sorted_probs[0]
+                        s_comp = sorted_probs[1] if len(sorted_probs) > 1 else 0.0
+
+                    if margin_val < tau_margin:
+                        ued_violations += 1
+                        violation_records.append({
+                            "image": os.path.basename(img_path),
+                            "pair": f"f{f_idx}-o{o_idx}",
+                            "gt_pred": gt_pred if gt_pred is not None else "N/A",
+                            "pred_class": pred_class,
+                            "s_target": s_target,
+                            "s_competitor": s_comp,
+                            "delta_margin": margin_val,
+                        })
+
+    if total_pairs_evaluated == 0:
+        Logger.report("IGNITE DIAGNOSTIC REPORT: No valid bounding box pairs detected across dataset manifest.")
+        return {}
+
+    margins_arr = np.array(all_margins)
+    ued_rate = (ued_violations / total_pairs_evaluated) * 100.0
+
+    metrics = {
+        "total_manifest_images": len(manifest_df),
+        "frames_with_dual_detections": active_frames,
+        "total_candidate_pairs": total_pairs_evaluated,
+        "mean_delta_margin": float(margins_arr.mean()),
+        "std_delta_margin": float(margins_arr.std()),
+        "min_delta_margin": float(margins_arr.min()),
+        "max_delta_margin": float(margins_arr.max()),
+        "ued_rate_pct": ued_rate,
+        "ued_violations": ued_violations,
+    }
+
+    report_lines = [
+        "IGNITE DUAL-DETECTOR DIAGNOSTIC REPORT: ZERO-SHOT MARGIN & UED AUDIT",
+        "=" * 70,
+        f"Extractor Mode          : Zero-Shot Sinusoidal Template Matching",
+        f"Total Manifest Frames   : {metrics['total_manifest_images']}",
+        f"Frames Active (Both)    : {active_frames}",
+        f"Total BBox Pairs Tested : {total_pairs_evaluated}",
+        f"Tau Margin Threshold    : {tau_margin:.2f}",
+        "-" * 70,
+        f"Mean Delta Margin (\\Delta) : {metrics['mean_delta_margin']:.4f} ± {metrics['std_delta_margin']:.4f}",
+        f"Min / Max Margin        : {metrics['min_delta_margin']:.4f} / {metrics['max_delta_margin']:.4f}",
+        f"UED Violation Rate      : {metrics['ued_rate_pct']:.2f}% ({ued_violations}/{total_pairs_evaluated})",
+        "-" * 70,
+        "FAILING PAIR PROBABILITY BREAKDOWN (Delta < Tau):",
+        f"{'Image':<20} | {'Pair':<7} | {'GT':<6} | {'Pred':<7} | {'s_target':<9} | {'s_comp':<9} | {'Delta':<7}",
+        "-" * 70,
+    ]
+
+    for v in violation_records[:max_logged_violations]:
+        report_lines.append(
+            f"{v['image'][:19]:<20} | {v['pair']:<7} | {str(v['gt_pred']):<6} | "
+            f"{str(v['pred_class']):<7} | {v['s_target']:<9.4f} | {v['s_competitor']:<9.4f} | {v['delta_margin']:<7.4f}"
+        )
+
+    if len(violation_records) > max_logged_violations:
+        report_lines.append(f"... and {len(violation_records) - max_logged_violations} additional failing pairs omitted from log summary.")
+
+    report_lines.append("=" * 70)
+
+    Logger.report("\n" + "\n".join(report_lines))
+
+    return metrics
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="IGNITE Diagnostic Margin & UED Evaluation Runner")
+    parser.add_argument("--weights", type=str, required=False, help="Path to GeometricPredicateExtractor checkpoint")
+    parser.add_argument("--tau", type=float, default=0.15, help="Safety threshold margin tau (default: 0.15)")
+    parser.add_argument("--device", type=str, default="cpu", help="Device target ('cpu' or 'cuda')")
+    args = parser.parse_args()
+
+    # Place execution wrapper instantiation here when executed directly as CLI
 # MAIN ENTRY POINT
 # =====================================================================
 def runExperiment():
@@ -310,6 +620,8 @@ def runExperiment():
     
             # Run statistical significance test (RQ3) on direct single-pass holdout predictions
             Test3(eval_data)
+            Test4(manifest, ignite_instance)
+            Test5(manifest,YOLOModel("Service//ObjectDetector//fire.pt"),YOLOModel("Service//ObjectDetector//obj1.pt"))
             
             Logger.flush()  # Insurance Method to Flush All Reports
     else:
@@ -433,4 +745,10 @@ def runThruputPerformance(tframe=1000):
 
 
 if __name__ == "__main__":
-    runThruputPerformance()
+    SAFE_DIR = "Dataset//evaluation_slices//safe"
+    FIRE_DIR = "Dataset//evaluation_slices//fire_present_set//images"
+    manifest = build_dataset_manifest(SAFE_DIR, FIRE_DIR)
+        
+    if len(manifest) > 0:
+        runExperiment()
+        Logger.flush()

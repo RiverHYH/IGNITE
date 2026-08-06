@@ -11,14 +11,14 @@ from Service.Predicate.triplet2natural import PREDICATE_TEMPLATES
 class GeometricPredicateExtractor(nn.Module):
     def __init__(self, embedding_dim=64):
         super().__init__()
-        self.d_dim = embedding_dim 
-        self.__predicates = ['is_in', 'is_on', 'is_near']
+        self.d_dim:int = embedding_dim 
+        self.__predicates:list[str] = ['is_in', 'is_on', 'is_near']
 
         # Elements correspond to ideal CXCYWH offsets: [delta_cx, delta_cy, delta_log_w, delta_log_h]
         self.__ideal_coordinates = {
-            'is_in':   torch.tensor([ 0.0,  0.0, -0.7, -0.7]), 
-            'is_on':   torch.tensor([ 0.0, -0.6, -0.4, -0.4]), 
-            'is_near': torch.tensor([ 1.0,  0.0,  0.0,  0.0])  
+            'is_in':   torch.tensor([ 0.0,  0.0, -0.6, -0.6]),
+            'is_on':   torch.tensor([ 0.0, -0.85, -0.2, -0.2]), # Increased negative cy offset
+            'is_near': torch.tensor([ 1.2,  0.0,  0.0,  0.0])
         }
         
         # Initialize and register buffers correctly
@@ -72,56 +72,73 @@ class GeometricPredicateExtractor(nn.Module):
             
         return torch.cat(embeddings) 
 
-    def get_predicate(self, box_f, box_o):
+    def get_predicate(self, box_f, box_o, gt_predicate: str | None = None,Tempreture:float=0.02) -> tuple[str, float, dict]:
         """
         Args:
-            box_f: List or Tensor [x1, y1, x2, y2]
-            box_o: List or Tensor [x1, y1, x2, y2]
+            box_f: Tensor or List [x1, y1, x2, y2]
+            box_o: Tensor or List [x1, y1, x2, y2]
+            gt_predicate (str, optional): Ground-truth predicate to evaluate absolute target margin.
+
         Returns:
-            winning_predicate: String token matching closest layout template
+            winning_predicate (str): Name of predicted geometric predicate template.
+            margin (float): Computed Delta_margin confidence score.
+            sim_dict (dict): Full dictionary of cosine similarities across all anchors.
         """
-        # 1. Extract device once from your trusted cached buffer.
-        # This acts as the single source of truth and silences Pylance.
         device = self.anchors.device
 
-        # Ensure conversion to tensor on correct device if input is a python list
         if not isinstance(box_f, torch.Tensor):
             box_f = torch.tensor(box_f, dtype=torch.float32, device=device)
         if not isinstance(box_o, torch.Tensor):
             box_o = torch.tensor(box_o, dtype=torch.float32, device=device)
 
-        # Convert XYXY format to CXCYWH format
-        wf, hf = box_f[2] - box_f[0], box_f[3] - box_f[1]
+        # Convert XYXY to CXCYWH
+        wf, hf = max(box_f[2] - box_f[0], 1e-6), max(box_f[3] - box_f[1], 1e-6)
         cxf, cyf = box_f[0] + wf / 2.0, box_f[1] + hf / 2.0
 
-        wo, ho = box_o[2] - box_o[0], box_o[3] - box_o[1]
+        wo, ho = max(box_o[2] - box_o[0], 1e-6), max(box_o[3] - box_o[1], 1e-6)
         cxo, cyo = box_o[0] + wo / 2.0, box_o[1] + ho / 2.0
 
-        # Prevent division-by-zero or negative log issues
-        wo = max(wo, 1e-6)
-        ho = max(ho, 1e-6)
-        wf = max(wf, 1e-6)
-        hf = max(hf, 1e-6)
-        
-        # 2. Use the local 'device' variable here. Pylance knows this is perfectly safe.
+        # Layout offsets
         t_live = torch.tensor([
             (cxf - cxo) / wo,
             (cyf - cyo) / ho,
-            torch.log(torch.tensor(wf / wo, device=device)),
-            torch.log(torch.tensor(hf / ho, device=device))
+            torch.log(wf / wo),
+            torch.log(hf / ho)
         ], dtype=torch.float32, device=device)
-        
-        # Step 2: Project runtime layout to 256D wave continuous signature space
+
+        # Continuous wave projection and unit normalization
         v_live = self._compute_wave_embedding(t_live)
-        
-        # Step 3: Run runtime unit-normalization
         v_live_norm = v_live / torch.norm(v_live, p=2)
+
+        # Parallel dot-product similarity against template anchors
+        # Parallel dot-product similarity against template anchors
+        similarities = torch.mv(self.anchors_norm, v_live_norm)
+
+        # Apply Temperature Scaling (T = 0.02) to un-squash cosine similarities
+        temperature = Tempreture
+        scaled_logits = similarities / temperature
+        probs = torch.softmax(scaled_logits, dim=-1)
+
+        # 1. Evaluate Margin against Ground-Truth reference if provided
+        if gt_predicate is not None and gt_predicate in self.predicates:
+            gt_idx = self.predicates.index(gt_predicate)
+            s_target = probs[gt_idx]
+            
+            mask = torch.ones(len(self.predicates), dtype=torch.bool, device=device)
+            mask[gt_idx] = False
+            s_comp_max = probs[mask].max()
+            
+            margin = (s_target - s_comp_max).item()
+            winning_idx = int(torch.argmax(probs).item())
         
-        # Step 4: Parallel Matrix-Vector dot product utilizing cached template matrices
-        similarities = torch.mv(self.anchors_norm, v_live_norm) 
-        winning_index = int(torch.argmax(similarities).item())
-        
-        return self.predicates[winning_index]
+        # 2. Otherwise compute top-1 vs top-2 competitive margin
+        else:
+            top_vals, top_idxs = torch.topk(probs, k=min(2, len(self.predicates)))
+            margin = (top_vals[0] - top_vals[1]).item()
+            winning_idx = int(top_idxs[0].item())
+
+        sim_dict = {p: probs[i].item() for i, p in enumerate(self.predicates)}
+        return self.predicates[winning_idx], margin, sim_dict
     
     
     
