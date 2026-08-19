@@ -1,9 +1,9 @@
+import ctypes
 import os
 import time
-import ctypes
-import psutil
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
+import psutil
 
 try:
     import pynvml
@@ -12,6 +12,7 @@ except ImportError:
 
 
 class PerformanceMonitor:
+
     def __init__(self, gpu_index=0):
         self.process = psutil.Process(os.getpid())
 
@@ -68,9 +69,13 @@ class PerformanceMonitor:
                     ctypes.CDLL(path)
                     pynvml.nvmlLib = ctypes.CDLL(path)
                     pynvml.nvmlInit()
-                    self.gpu_handle = pynvml.nvmlDeviceGetHandleByIndex(gpu_index)
+                    self.gpu_handle = pynvml.nvmlDeviceGetHandleByIndex(
+                        gpu_index
+                    )
                     self.gpu_available = True
-                    print(f"[INFO] NVML initialized via manual injection: {path}")
+                    print(
+                        f"[INFO] NVML initialized via manual injection: {path}"
+                    )
                     return
                 except Exception as e:
                     print(f"[WARN] Failed NVML injection via {path}: {e}")
@@ -149,33 +154,60 @@ class PerformanceMonitor:
         }
 
     # ---------------------------------------------------------
+    # Y-Scale Auto-Scaler Helper
+    # ---------------------------------------------------------
+    def _auto_scale_y(self, ax, *data_lists, padding=0.05):
+        vals = []
+        for d in data_lists:
+            if d is not None and len(d) > 0:
+                arr = np.array(d, dtype=float)
+                arr = arr[~np.isnan(arr)]
+                if len(arr) > 0:
+                    vals.extend(arr)
+
+        if not vals:
+            return
+
+        ymin, ymax = float(np.min(vals)), float(np.max(vals))
+        if ymin == ymax:
+            margin = 1.0 if ymin == 0 else abs(ymin) * 0.1
+            ax.set_ylim(ymin - margin, ymax + margin)
+        else:
+            margin = (ymax - ymin) * padding
+            ax.set_ylim(ymin - margin, ymax + margin)
+
+    # ---------------------------------------------------------
     # Plotting
     # ---------------------------------------------------------
     def plot(self, save_path=None, kwargs=None):
-        RAM_GB = kwargs.get("RAM", None) if kwargs else None
-        VRAM_GB = kwargs.get("VRAM", None) if kwargs else None
         TargetFPS = kwargs.get("TargetFPS", None) if kwargs else None
 
-        RAM_MB = RAM_GB * 1024 if RAM_GB else self.total_system_mem
-        VRAM_MB = VRAM_GB * 1024 if VRAM_GB else None
-        
-        plt.rcParams.update({
-            'font.family': 'serif',
-            'font.size': 8,
-            'axes.labelsize': 8,
-            'axes.titlesize': 9,
-            'legend.fontsize': 7,
-            'xtick.labelsize': 7,
-            'ytick.labelsize': 7,
-            'lines.linewidth': 1.0,
-        })
-        total_plots = 7 if self.gpu_available else 5
-        # 2. Set dimensions: 6.5 in width (full ACL text width), 7.5 in height (leaves room for caption)
-        fig, axes = plt.subplots(total_plots, 1, figsize=(6.5, 7.5), sharex=True)
+        plt.rcParams.update(
+            {
+                "font.family": "serif",
+                "font.size": 8,
+                "axes.labelsize": 8,
+                "axes.titlesize": 9,
+                "legend.fontsize": 7,
+                "xtick.labelsize": 7,
+                "ytick.labelsize": 7,
+                "lines.linewidth": 1.0,
+            }
+        )
+
+        # 6 subplots if GPU is available, 4 if not (AUC is integrated into CPU RAM & GPU VRAM)
+        total_plots = 6 if self.gpu_available else 4
+        fig, axes = plt.subplots(
+            total_plots, 1, figsize=(6.5, 7.5), sharex=True
+        )
+        if total_plots == 1:
+            axes = [axes]
         idx = 0
 
+        x_frames = np.arange(len(self.loop_lat))
+
         # 1. Loop latency + drop markers
-        axes[idx].plot(self.loop_lat, color="blue")
+        axes[idx].plot(self.loop_lat, color="blue", label="Loop Latency")
         drops = [i for i, v in enumerate(self.loop_lat) if v > 33.33]
         if drops:
             axes[idx].scatter(
@@ -183,10 +215,12 @@ class PerformanceMonitor:
                 [self.loop_lat[i] for i in drops],
                 color="red",
                 label="Dropped Frame (>33.3ms)",
+                zorder=5,
             )
         axes[idx].set_title("Total Loop Latency (ms)")
         axes[idx].set_ylabel("ms")
         axes[idx].legend(loc="upper right")
+        self._auto_scale_y(axes[idx], self.loop_lat)
         idx += 1
 
         # 2. Component latencies
@@ -196,77 +230,127 @@ class PerformanceMonitor:
         axes[idx].set_title("Component Latencies (ms)")
         axes[idx].set_ylabel("ms")
         axes[idx].legend(loc="upper right")
+        self._auto_scale_y(axes[idx], self.io_lat, self.inf_lat, self.draw_lat)
         idx += 1
 
-        # 3. CPU Memory
-        axes[idx].plot(self.mem_usage, color="orange", label="CPU Memory")
+        # 3. CPU Memory with integrated AUC breakdown
+        mem_arr = (
+            np.array(self.mem_usage)
+            if len(self.mem_usage) > 0
+            else np.array([0])
+        )
+        baseline_arr = np.full_like(mem_arr, self.baseline_mem)
+
+        axes[idx].plot(mem_arr, color="orange", label="Total CPU Memory")
+        axes[idx].plot(
+            baseline_arr, color="gray", linestyle="--", label="Baseline RAM"
+        )
+
+        # Integrated AUC Shading: Function vs Non-function baseline
+        axes[idx].fill_between(
+            x_frames[: len(mem_arr)],
+            0,
+            baseline_arr,
+            color="gray",
+            alpha=0.15,
+            label="Non-function Usage (AUC)",
+        )
+        axes[idx].fill_between(
+            x_frames[: len(mem_arr)],
+            baseline_arr,
+            mem_arr,
+            color="cyan",
+            alpha=0.4,
+            label="Function Usage (AUC)",
+        )
+
         if len(self.mem_usage) > 1:
             x = np.arange(len(self.mem_usage))
             m, b = np.polyfit(x, self.mem_usage, 1)
-            axes[idx].plot(x, m * x + b, color="black", linestyle="--", label="Leak Trend")
-        axes[idx].set_title("CPU Memory Usage (MB)")
+            axes[idx].plot(
+                x, m * x + b, color="black", linestyle=":", label="Leak Trend"
+            )
+
+        axes[idx].set_title("CPU Memory Usage & AUC (MB)")
         axes[idx].set_ylabel("MB")
-        axes[idx].set_ylim(0, RAM_MB)
         axes[idx].legend(loc="upper right")
+        self._auto_scale_y(axes[idx], mem_arr, baseline_arr)
         idx += 1
 
         # 4 & 5. GPU Metrics (If GPU is available)
         if self.gpu_available:
-            # GPU VRAM
-            axes[idx].plot(self.gpu_mem_usage, color="red", label="GPU VRAM Usage")
-            axes[idx].set_title("GPU Memory Usage (MB)")
+            # GPU VRAM with integrated AUC
+            gpu_mem_arr = (
+                np.array(self.gpu_mem_usage)
+                if len(self.gpu_mem_usage) > 0
+                else np.array([0])
+            )
+            vram_baseline = gpu_mem_arr[0] if len(gpu_mem_arr) > 0 else 0
+            vram_base_arr = np.full_like(gpu_mem_arr, vram_baseline)
+
+            axes[idx].plot(gpu_mem_arr, color="red", label="Total GPU VRAM")
+            axes[idx].plot(
+                vram_base_arr,
+                color="gray",
+                linestyle="--",
+                label="Baseline VRAM",
+            )
+
+            # Integrated AUC Shading: Function VRAM vs Non-function VRAM
+            axes[idx].fill_between(
+                x_frames[: len(gpu_mem_arr)],
+                0,
+                vram_base_arr,
+                color="gray",
+                alpha=0.15,
+                label="Non-function VRAM (AUC)",
+            )
+            axes[idx].fill_between(
+                x_frames[: len(gpu_mem_arr)],
+                vram_base_arr,
+                gpu_mem_arr,
+                color="magenta",
+                alpha=0.3,
+                label="Function VRAM (AUC)",
+            )
+
+            axes[idx].set_title("GPU Memory Usage & AUC (MB)")
             axes[idx].set_ylabel("MB")
-            if VRAM_MB:
-                axes[idx].set_ylim(0, VRAM_MB)
             axes[idx].legend(loc="upper right")
+            self._auto_scale_y(axes[idx], gpu_mem_arr, vram_base_arr)
             idx += 1
 
             # GPU Utilization %
-            axes[idx].plot(self.gpu_util, color="purple", label="GPU Utilization (%)")
+            axes[idx].plot(
+                self.gpu_util, color="purple", label="GPU Utilization (%)"
+            )
             axes[idx].set_title("GPU Utilization (%)")
             axes[idx].set_ylabel("%")
-            axes[idx].set_ylim(0, 100)
             axes[idx].legend(loc="upper right")
+            self._auto_scale_y(axes[idx], self.gpu_util)
             idx += 1
 
         # 6. FPS
         axes[idx].plot(self.fps, color="green", label="FPS")
+        fps_scale_targets = [self.fps]
         if TargetFPS:
             axes[idx].axhline(
-                TargetFPS, color="red", linestyle="--", label=f"Target FPS ({TargetFPS})"
+                TargetFPS,
+                color="red",
+                linestyle="--",
+                label=f"Target FPS ({TargetFPS})",
             )
+            fps_scale_targets.append([TargetFPS])
+
         axes[idx].set_title("FPS")
         axes[idx].set_ylabel("Frames/s")
         axes[idx].legend(loc="upper right")
-        idx += 1
-
-        # 7. Memory AUC
-        total_mem = np.array(self.mem_usage) if len(self.mem_usage) > 0 else np.array([0])
-        non_func_mem = np.full_like(total_mem, self.baseline_mem)
-
-        axes[idx].plot(total_mem, color="blue", label="Total Memory")
-        axes[idx].plot(non_func_mem, color="gray", label="Non-function Baseline")
-        axes[idx].fill_between(
-            np.arange(len(total_mem)),
-            non_func_mem,
-            total_mem,
-            color="cyan",
-            alpha=0.4,
-            label="Function Memory (AUC)",
-        )
-        axes[idx].set_title("Memory AUC (Function vs Non-function)")
-        axes[idx].set_ylabel("MB")
-        axes[idx].set_ylim(0, RAM_MB)
-        axes[idx].legend(loc="upper right")
+        self._auto_scale_y(axes[idx], *fps_scale_targets)
 
         plt.tight_layout()
 
         if save_path:
             os.makedirs(os.path.dirname(save_path), exist_ok=True)
-
-            plt.tight_layout()
-
-            # 3. Save as vector PDF (recommended for LaTeX) or high-DPI PNG
             plt.savefig(save_path, format="pdf", bbox_inches="tight")
             plt.savefig(save_path, dpi=300, bbox_inches="tight")
             print(f"[INFO] Plot saved to {save_path}")

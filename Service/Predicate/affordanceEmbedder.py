@@ -111,7 +111,6 @@ class GeometricPredicateExtractor(nn.Module):
         v_live_norm = v_live / torch.norm(v_live, p=2)
 
         # Parallel dot-product similarity against template anchors
-        # Parallel dot-product similarity against template anchors
         similarities = torch.mv(self.anchors_norm, v_live_norm)
 
         # Apply Temperature Scaling (T = 0.02) to un-squash cosine similarities

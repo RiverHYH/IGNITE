@@ -22,7 +22,7 @@ from IO_Module.throughputMonitor import PerformanceMonitor
 from IO_Module.cameraList import list_cameras_windows
 from IO_Module.boundingBoxDrawer import draw_predictions
 
-
+import torch.nn.functional as F
 # =====================================================================
 # SHARED UTILITIES & METRIC COMPUTATION
 # =====================================================================
@@ -631,7 +631,7 @@ def runThruputPerformance(tframe=1000):
     SKIP_FRAMES = 15
     monitor = PerformanceMonitor()
 
-    # PURPOSE: For the purpose of monitoring each stage, the script isn't using activate() for full-pipeline execution.
+    # Camera selection logic
     cams = list_cameras_windows()
     if not cams:
         Logger.error("Application Terminated Due to No video devices found.")
@@ -656,12 +656,12 @@ def runThruputPerformance(tframe=1000):
         for frame in stream.frames():
             t_loop_start = time.perf_counter()
 
-            # IO
+            # 1. IO Stage
             t_io_start = time.perf_counter()
             bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
             t_io_end = time.perf_counter()
 
-            # Inference
+            # 2. Inference Stage
             t_inf_start = time.perf_counter()
             if frame_counter % SKIP_FRAMES == 0:
                 outcome = application._parse(bgr)
@@ -669,7 +669,7 @@ def runThruputPerformance(tframe=1000):
                 outcome = None
             t_inf_end = time.perf_counter()
 
-            # Drawing
+            # 3. Drawing Stage
             t_draw_start = time.perf_counter()
             if outcome:
                 result, decision = outcome
@@ -680,27 +680,24 @@ def runThruputPerformance(tframe=1000):
             cv2.imshow("IGNITE", bgr)
             key = cv2.waitKey(1) & 0xFF
 
-            # Loop end
+            # Loop calculation
             t_loop_end = time.perf_counter()
 
-            # Latencies
+            # Calculate Stage Latencies (ms)
             io_ms = (t_io_end - t_io_start) * 1000
             inf_ms = (t_inf_end - t_inf_start) * 1000
             draw_ms = (t_draw_end - t_draw_start) * 1000
             loop_ms = (t_loop_end - t_loop_start) * 1000
 
+            # Record Latencies & FPS
             monitor.record_latency(io_ms, inf_ms, draw_ms, loop_ms)
-
-            # Memory Recording
-            mem_now = monitor.record_memory()
-
-            # GPU Recording (ADDED THIS)
-            gpu_mem_now, gpu_util_now = monitor.record_gpu()
-
-            # FPS
             fps_now = monitor.record_fps(loop_ms)
 
-            # Drop detection
+            # Record System & Process Memory Resources
+            mem_now = monitor.record_memory()
+            gpu_mem_now, gpu_util_now = monitor.record_gpu()
+
+            # Frame drop detection
             if monitor.detect_frame_drop(loop_ms):
                 print(
                     f"[DROP] Frame {frame_counter}: {loop_ms:.2f} ms (FPS={fps_now:.2f})"
@@ -712,17 +709,18 @@ def runThruputPerformance(tframe=1000):
 
     cv2.destroyAllWindows()
 
-    # Summary Generation (Include GPU stats if available)
+    # Generate Performance Summary
     gpu_summary = ""
     if monitor.gpu_available and len(monitor.gpu_mem_usage) > 0:
         gpu_summary = (
             f"Peak GPU Memory: {max(monitor.gpu_mem_usage):.2f} MB\n"
+            f"Peak GPU Utilization: {max(monitor.gpu_util):.2f}%\n"
             f"GPU Memory Leak Detected: {monitor.detect_gpu_leak()}\n"
         )
 
     summary = (
         "\n=== IGNITE PERFORMANCE SUMMARY ===\n"
-        f"Frames: {frame_counter}\n"
+        f"Frames Analyzed: {frame_counter}\n"
         f"Mean FPS: {np.mean(monitor.fps):.2f}\n"
         f"Peak CPU Memory: {max(monitor.mem_usage):.2f} MB\n"
         f"CPU Memory Leak Detected: {monitor.detect_memory_leak()}\n"
@@ -736,13 +734,171 @@ def runThruputPerformance(tframe=1000):
     Logger.report(summary)
     Logger.flush()
 
-    # Plotting (Will now populate GPU graphs)
+    # Generate plot (Outputs auto-scaled subplots with integrated RAM & VRAM AUC shading)
     monitor.plot(
         save_path="reports/run_thru.png",
-        kwargs={"RAM": 16, "VRAM": 4, "TargetFPS": 30},
+        kwargs={"TargetFPS": 30},
     )
     return None
 
+import os
+import numpy as np
+import pandas as pd
+import torch
+import torch.nn.functional as F
+from PIL import Image
+from typing import Any
+
+def runAblation(
+    manifest_df: pd.DataFrame,
+    fire_detector: Any,
+    obj_detector: Any,
+    extractor_cls: Any,
+    tau_margin: float = 0.15,
+    temperatures: list[float] | None = None,
+    device: str = "cpu",
+) -> pd.DataFrame:
+    """
+    Standalone temperature ablation study runner (Unsupervised Confidence Calibration).
+    
+    Replicates the exact geometric transformation logic from get_predicate() to cache 
+    unscaled cosine similarities, then sweeps temperature values (T) in vectorised 
+    batches to evaluate UED Rate, Margin Sharpness, and Shannon Entropy without needing GT labels.
+    
+    Logs the final summary report via Logger.report().
+    """
+    if temperatures is None:
+        temperatures = [0.001, 0.005, 0.01, 0.015, 0.02, 0.03, 0.05, 0.10, 0.20, 0.50]
+
+    Logger.info("Initialising Standalone Temperature Ablation Study (Unlabeled Mode)...")
+    extractor = extractor_cls().to(device)
+    extractor.eval()
+
+    raw_sims_list = []
+    total_pairs_evaluated = 0
+    active_frames = 0
+
+    # -------------------------------------------------------------------------
+    # STEP 1: Single-Pass Detector Inference & Raw Similarity Extraction
+    # -------------------------------------------------------------------------
+    for _, row in manifest_df.iterrows():
+        img_path = row["path"]
+        if not os.path.exists(img_path):
+            continue
+
+        try:
+            with Image.open(img_path) as img:
+                img_w, img_h = img.size
+        except Exception as e:
+            Logger.info(f"Failed to open image {img_path}: {e}")
+            continue
+
+        fire_detections = fire_detector.predict(img_path)
+        obj_detections = obj_detector.predict(img_path)
+
+        if not fire_detections or not obj_detections:
+            continue
+
+        active_frames += 1
+        norm_scale = torch.tensor([img_w, img_h, img_w, img_h], dtype=torch.float32, device=device)
+
+        boxes_f = [
+            (det["bbox"].to(device).float() if isinstance(det["bbox"], torch.Tensor)
+             else torch.tensor(det["bbox"], dtype=torch.float32, device=device)) / norm_scale
+            for det in fire_detections
+        ]
+        boxes_o = [
+            (det["bbox"].to(device).float() if isinstance(det["bbox"], torch.Tensor)
+             else torch.tensor(det["bbox"], dtype=torch.float32, device=device)) / norm_scale
+            for det in obj_detections
+        ]
+
+        with torch.no_grad():
+            for box_f in boxes_f:
+                for box_o in boxes_o:
+                    # Exact CXCYWH conversion matching get_predicate
+                    wf = torch.clamp(box_f[2] - box_f[0], min=1e-6)
+                    hf = torch.clamp(box_f[3] - box_f[1], min=1e-6)
+                    cxf, cyf = box_f[0] + wf / 2.0, box_f[1] + hf / 2.0
+
+                    wo = torch.clamp(box_o[2] - box_o[0], min=1e-6)
+                    ho = torch.clamp(box_o[3] - box_o[1], min=1e-6)
+                    cxo, cyo = box_o[0] + wo / 2.0, box_o[1] + ho / 2.0
+
+                    # Construct spatial layout tensor t_live
+                    t_live = torch.tensor([
+                        (cxf - cxo) / wo,
+                        (cyf - cyo) / ho,
+                        torch.log(wf / wo),
+                        torch.log(hf / ho)
+                    ], dtype=torch.float32, device=device)
+
+                    # Multi-frequency wave projection & unit normalization
+                    v_live = extractor._compute_wave_embedding(t_live)
+                    v_live_norm = v_live / torch.norm(v_live, p=2)
+
+                    # Raw unscaled inner product against template anchors
+                    raw_sims = torch.mv(extractor.anchors_norm, v_live_norm)  # Shape: (|C^p|,)
+
+                    raw_sims_list.append(raw_sims)
+                    total_pairs_evaluated += 1
+
+    if total_pairs_evaluated == 0:
+        Logger.report("IGNITE ABLATION REPORT: No valid candidate bounding box pairs detected across dataset manifest.")
+        return pd.DataFrame()
+
+    # Stack cached similarity vectors: shape (N, |C^p|)
+    raw_sims_tensor = torch.stack(raw_sims_list).to(device)
+
+    # -------------------------------------------------------------------------
+    # STEP 2: Vectorised Temperature Grid Search
+    # -------------------------------------------------------------------------
+    ablation_records = []
+
+    for T in temperatures:
+        scaled_logits = raw_sims_tensor / T
+        probs = F.softmax(scaled_logits, dim=-1)
+
+        sorted_probs, _ = torch.sort(probs, dim=-1, descending=True)
+        margins = sorted_probs[:, 0] - sorted_probs[:, 1]
+
+        ued_count = (margins < tau_margin).sum().item()
+        ued_rate_pct = (ued_count / total_pairs_evaluated) * 100.0
+
+        mean_margin = margins.mean().item()
+        std_margin = margins.std().item()
+
+        log_probs = torch.log(probs + 1e-12)
+        entropy = -(probs * log_probs).sum(dim=-1).mean().item()
+
+        ablation_records.append({
+            "Temp (T)": T,
+            "UED Rate (%)": round(ued_rate_pct, 2),
+            "Mean Margin (Δ)": round(mean_margin, 4),
+            "Std Margin": round(std_margin, 4),
+            "Mean Entropy": round(entropy, 4)
+        })
+
+    df_results = pd.DataFrame(ablation_records)
+
+    # -------------------------------------------------------------------------
+    # STEP 3: Report String Payload Construction
+    # -------------------------------------------------------------------------
+    report_lines = [
+        "IGNITE PREDICATE EMBEDDER: UNSUPERVISED TEMPERATURE ABLATION REPORT",
+        "=" * 70,
+        f"Total Manifest Frames   : {len(manifest_df)}",
+        f"Frames Active (Both)    : {active_frames}",
+        f"Total BBox Pairs Tested : {total_pairs_evaluated}",
+        f"Tau Margin Threshold    : {tau_margin:.2f}",
+        "-" * 70,
+        df_results.to_string(index=False),
+        "=" * 70,
+    ]
+
+    Logger.report("\n" + "\n".join(report_lines))
+
+    return df_results
 
 if __name__ == "__main__":
     SAFE_DIR = "Dataset//evaluation_slices//safe"
@@ -750,5 +906,5 @@ if __name__ == "__main__":
     manifest = build_dataset_manifest(SAFE_DIR, FIRE_DIR)
         
     if len(manifest) > 0:
-        runExperiment()
+        runAblation(manifest,YOLOModel("Service//ObjectDetector//fire.pt"),YOLOModel("Service//ObjectDetector//obj1.pt"),extractor_cls=GeometricPredicateExtractor)
         Logger.flush()
