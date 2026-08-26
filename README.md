@@ -19,7 +19,7 @@ IGNITE
 │   ├── KAD                     # Source of HFDobj annotations (Roboflow)
 │   └── evaluation_slices       # Human Safety Oracle
 │
-├── IO_Module                   # Front‑end input/output modules
+├── utils                   # Front‑end input/output modules
 │   ├── boundingBoxDrawer       # Renders bounding boxes
 │   ├── cameraList              # Lists FFmpeg‑supported cameras
 │   ├── cameraSetting           # Gets/Sets camera settings
@@ -43,7 +43,7 @@ IGNITE
 │       └── continuousLatentInferencer
 │                               # Wrapper around BAAI/BGE for vector search
 │
-├── app                         # Main application integrating IO_Module + Service
+├── app                         # Main application integrating utils + Service
 │
 ├── logs                        # Auto‑generated logs (optional)
 │

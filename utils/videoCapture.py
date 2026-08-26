@@ -1,7 +1,7 @@
 import queue
 import threading
 import av
-from IO_Module.logger import Logger
+from utils.logger import Logger
 
 # Mute FFmpeg internal warnings globally
 av.logging.set_level(av.logging.ERROR)

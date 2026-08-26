@@ -4,7 +4,7 @@ from typing import List, Dict, Any
 
 import torch
 import torch.nn as nn
-from IO_Module.logger import Logger
+from utils.logger import Logger
 
 from Service.Predicate.triplet2natural import PREDICATE_TEMPLATES
 

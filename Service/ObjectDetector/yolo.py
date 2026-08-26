@@ -1,5 +1,5 @@
 from ultralytics import YOLO
-from IO_Module.logger import Logger
+from utils.logger import Logger
 from typing import List, Union, Dict, Any
 
 class YOLOModel:

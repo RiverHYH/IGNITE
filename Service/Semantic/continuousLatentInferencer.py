@@ -5,7 +5,7 @@ from typing import Union, List, Dict, Any
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoModel
 import torch
 import sys,os
-from IO_Module.logger import Logger
+from utils.logger import Logger
 
 import pprint
 

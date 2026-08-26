@@ -1,10 +1,10 @@
 # IGINIE Application Starts Here
 from typing import List
-from IO_Module.logger import Logger
+from utils.logger import Logger
 import cv2
-from IO_Module.cameraList import list_cameras_windows
-from IO_Module.videoCapture import CameraStream
-from IO_Module.boundingBoxDrawer import draw_predictions
+from utils.cameraList import list_cameras_windows
+from utils.videoCapture import CameraStream
+from utils.boundingBoxDrawer import draw_predictions
 from Service.ObjectDetector.yolo import YOLOModel
 from Service.Semantic.continuousLatentInferencer import ContinuousLatentInferencer
 from Service.Predicate.affordanceEmbedder import GeometricPredicateExtractor,generate_semantic_prompt
