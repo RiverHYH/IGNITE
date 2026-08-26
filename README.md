@@ -2,7 +2,7 @@
 ## Project Overview
 This repository contains the source code for the **`INST0062 Dissertation Project`**, supporting full reproducibility of results and demonstrating the intellectual contribution of the work.
 
-**IGNITE — Integrated Geospatial Navigation and Inference for Thermal Events —** is a **zero‑shot**, **post‑hoc** **augmentation** framework designed for **CNN‑based computer‑vision fire detectors**. The system enriches conventional object‑level detection with **affordance‑driven semantic reasoning**, mapping the functional **relationships** between **scene objects** and **fire** into **logic predicates**. By comparing these predicates against stored human‑lingual knowledge, IGNITE **suppresses** alarms for **benign**, **contextually appropriate fires** while **preserving** sensitivity to **hazardous ones**.
+**IGNITE — Integrated Geometric Navigation and Inference for Thermal Events —** is a **zero‑shot**, **post‑hoc** **augmentation** framework designed for **CNN‑based computer‑vision fire detectors**. The system enriches conventional object‑level detection with **affordance‑driven semantic reasoning**, mapping the functional **relationships** between **scene objects** and **fire** into **logic predicates**. By comparing these predicates against stored human‑lingual knowledge, IGNITE **suppresses** alarms for **benign**, **contextually appropriate fires** while **preserving** sensitivity to **hazardous ones**.
 
 ------
 **Disclaimer**
