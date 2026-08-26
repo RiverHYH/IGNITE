@@ -23,12 +23,18 @@ from IO_Module.cameraList import list_cameras_windows
 from IO_Module.boundingBoxDrawer import draw_predictions
 
 import torch.nn.functional as F
-# =====================================================================
-# SHARED UTILITIES & METRIC COMPUTATION
-# =====================================================================
 
 def build_dataset_manifest(safe_dir: str, fire_dir: str) -> pd.DataFrame:
-    """Builds a structured dataset manifest from image directories."""
+    """
+    Builds a structured dataset manifest from image directories.
+    
+    Args:
+        safe_dir: Path to directory containing safe images (class 0).
+        fire_dir: Path to directory containing fire images (class 1).
+        
+    Returns:
+        DataFrame with columns: path, y_oracle, group_id.
+    """
     Logger.info("Building dataset manifest...")
     records = []
     valid_exts = (".jpg", ".jpeg", ".png")
@@ -55,16 +61,34 @@ def build_dataset_manifest(safe_dir: str, fire_dir: str) -> pd.DataFrame:
 
 
 def predict_yolo(img: np.ndarray, yolo_instance: YOLOModel) -> tuple[int, float]:
-    """Runs YOLO inference and returns (binary_prediction, latency_ms)."""
+    """
+    Runs YOLO inference and returns (binary_prediction, latency_ms).
+    
+    Args:
+        img: Input image array.
+        yolo_instance: YOLO model instance detecting fire.
+        
+    Returns:
+        Tuple of binary prediction and latency in milliseconds.
+    """
     t0 = time.perf_counter()
     preds = yolo_instance.predict(img)
     latency_ms = (time.perf_counter() - t0) * 1000.0
-    pred_class = 0 if preds is None or len(preds) == 0 else 1
+    pred_class = 0 if preds is None or len(preds) == 0 else 1 # No Bounding Boxes for Flame and Smoke indicates No Fire
     return pred_class, latency_ms
 
 
 def predict_ignite(img: np.ndarray, ignite_instance: IGNITE) -> tuple[int, float]:
-    """Runs IGNITE neuro-symbolic inference and returns (binary_prediction, latency_ms)."""
+    """
+    Runs IGNITE neuro-symbolic inference and returns (binary_prediction, latency_ms).
+    
+    Args:
+        img: Input image array.
+        ignite_instance: IGNITE model instance.
+        
+    Returns:
+        Tuple of binary prediction and latency in milliseconds.
+    """
     t0 = time.perf_counter()
     value = ignite_instance._parse(img)
     latency_ms = (time.perf_counter() - t0) * 1000.0
@@ -73,7 +97,15 @@ def predict_ignite(img: np.ndarray, ignite_instance: IGNITE) -> tuple[int, float
 
 
 def compute_metrics(y_true: np.ndarray, y_pred: np.ndarray, latencies: list[float]) -> dict:
-    """Computes safety metrics under the HSO protocol with division safeguards."""
+    """
+    Computes General Benchmark metrics including accuracy, precision, recall, and latency.
+    Args:
+        y_true: Ground truth labels.
+        y_pred: Predicted labels.
+        latencies: Inference latencies in milliseconds.
+    Returns:
+        Dictionary of metrics.
+    """
     tp = np.sum((y_true == 1) & (y_pred == 1))
     fp = np.sum((y_true == 0) & (y_pred == 1))
     tn = np.sum((y_true == 0) & (y_pred == 0))
@@ -114,7 +146,12 @@ def Test1(manifest: pd.DataFrame, yolo_instance: YOLOModel, ignite_instance: IGN
     """
     T1: Baseline System Efficacy & Latency
     Evaluates single-pass inference across the fully isolated benchmark dataset (D_HSO).
-    Returns summary DataFrame and raw prediction dictionaries for McNemar's test.
+    Args:
+        manifest: Dataset manifest.
+        yolo_instance: YOLO model instance.
+        ignite_instance: IGNITE model instance.
+    Returns:
+        Tuple containing DataFrame of evaluation results and a dictionary with raw data.
     """
     Logger.info("Conducting T1: Baseline System Efficacy Evaluation on Isolated Benchmark...")
 
@@ -174,6 +211,13 @@ def Test2(manifest: pd.DataFrame, yolo_instance: YOLOModel, ignite_instance: IGN
     """
     T2: Operational Stability via Cross-Validation
     Runs Stratified (Group) K-Fold CV to measure stability and variance across subsets of D_HSO.
+    Args:
+        manifest: Dataset manifest.
+        yolo_instance: YOLO model instance.
+        ignite_instance: IGNITE model instance.
+        n_splits: Number of folds for cross-validation.
+    Returns:
+        None
     """
     Logger.info(f"Conducting T2: {n_splits}-Fold Cross-Validation & Stability Evaluation...")
 
@@ -249,7 +293,10 @@ def Test2(manifest: pd.DataFrame, yolo_instance: YOLOModel, ignite_instance: IGN
 def Test3(eval_data: dict, alpha: float = 0.05) -> None:
     """
     T3: Statistical Significance via McNemar's Test
-    Evaluates off-diagonal discordant pairs from isolated single-pass test predictions on D_HSO.
+    Evaluates off-diagonal discordant pairs from isolated single-pass test predictions.
+    Args:
+        eval_data: Dictionary containing evaluation data. Passing down from Test 1
+        alpha: Significance level.
     """
     Logger.info("Conducting T3: McNemar Statistical Significance Analysis on Isolated Holdout Set...")
 
@@ -259,7 +306,7 @@ def Test3(eval_data: dict, alpha: float = 0.05) -> None:
 
     yolo_correct = (y_yolo == y_true)
     ignite_correct = (y_ignite == y_true)
-
+    #Purpose: XOR Operations
     a = int(np.sum(yolo_correct & ignite_correct))
     b = int(np.sum(yolo_correct & ~ignite_correct))
     c = int(np.sum(~yolo_correct & ignite_correct))
@@ -449,8 +496,15 @@ def Test5(
     device: str = "cpu",
 ) -> dict[str, Any]:
     """
-    Evaluates Predicate Confidence Margin (\Delta_margin) using deterministic
+    Evaluates Predicate Confidence Margin (Delta_margin) using deterministic
     temperature-scaled outputs from GeometricPredicateExtractor.
+    Args:
+        manifest_df (pd.DataFrame): Dataset manifest from `build_dataset_manifest`.
+        fire_detector: Fire detector instance implementing `.predict(image)`.
+        obj_detector: Object detector instance implementing `.predict(image)`.
+        tau_margin (float, optional): Margin threshold for violation reporting. Defaults to 0.15.
+        max_logged_violations (int, optional): Maximum number of violations to log. Defaults to 15.
+        device (str, optional): Device to use for inference. Defaults to "cpu".
     """
     Logger.info("Initialising zero-shot GeometricPredicateExtractor diagnostic audit...")
     extractor = GeometricPredicateExtractor().to(device)
@@ -589,18 +643,10 @@ def Test5(
     Logger.report("\n" + "\n".join(report_lines))
 
     return metrics
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="IGNITE Diagnostic Margin & UED Evaluation Runner")
-    parser.add_argument("--weights", type=str, required=False, help="Path to GeometricPredicateExtractor checkpoint")
-    parser.add_argument("--tau", type=float, default=0.15, help="Safety threshold margin tau (default: 0.15)")
-    parser.add_argument("--device", type=str, default="cpu", help="Device target ('cpu' or 'cuda')")
-    args = parser.parse_args()
-
-    # Place execution wrapper instantiation here when executed directly as CLI
 # MAIN ENTRY POINT
 # =====================================================================
 def runExperiment():
+    """Automated experiment runner"""
     SAFE_DIR = "Dataset//evaluation_slices//safe"
     FIRE_DIR = "Dataset//evaluation_slices//fire_present_set//images"
     YOLO_WEIGHTS = "Service//ObjectDetector//fire.pt"
@@ -628,6 +674,7 @@ def runExperiment():
             Logger.error("Evaluation aborted: Dataset manifest is empty.")
             
 def runThruputPerformance(tframe=1000):
+    """Automated Throughput Performance Test Runner"""
     SKIP_FRAMES = 15
     monitor = PerformanceMonitor()
 
@@ -741,14 +788,6 @@ def runThruputPerformance(tframe=1000):
     )
     return None
 
-import os
-import numpy as np
-import pandas as pd
-import torch
-import torch.nn.functional as F
-from PIL import Image
-from typing import Any
-
 def runAblation(
     manifest_df: pd.DataFrame,
     fire_detector: Any,
@@ -760,12 +799,14 @@ def runAblation(
 ) -> pd.DataFrame:
     """
     Standalone temperature ablation study runner (Unsupervised Confidence Calibration).
-    
-    Replicates the exact geometric transformation logic from get_predicate() to cache 
-    unscaled cosine similarities, then sweeps temperature values (T) in vectorised 
-    batches to evaluate UED Rate, Margin Sharpness, and Shannon Entropy without needing GT labels.
-    
-    Logs the final summary report via Logger.report().
+    Args:
+        manifest_df: Dataset manifest dataframe.
+        fire_detector: Fire detector instance.
+        obj_detector: Object detector instance.
+        extractor_cls: Similarity extractor class.
+        tau_margin: Tau margin for thresholding.
+        temperatures: Temperature values to test.
+        device: Device to run on.
     """
     if temperatures is None:
         temperatures = [0.001, 0.005, 0.01, 0.015, 0.02, 0.03, 0.05, 0.10, 0.20, 0.50]
