@@ -58,6 +58,10 @@ class GeometricPredicateExtractor(nn.Module):
         self._recompute_anchors()
     
     def _compute_wave_embedding(self, t_vector):
+        """
+        Sinusoidal embedding computation.
+        """
+        
         device = t_vector.device
         feat_range = torch.arange(self.d_dim, dtype=torch.float32, device=device)
         dim_mat = 10000.0 ** (2.0 * (feat_range // 2) / self.d_dim)
