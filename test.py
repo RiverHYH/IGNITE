@@ -643,8 +643,7 @@ def Test5(
     Logger.report("\n" + "\n".join(report_lines))
 
     return metrics
-# MAIN ENTRY POINT
-# =====================================================================
+
 def runExperiment():
     """Automated experiment runner"""
     SAFE_DIR = "Dataset//evaluation_slices//safe"
@@ -674,7 +673,7 @@ def runExperiment():
             Logger.error("Evaluation aborted: Dataset manifest is empty.")
             
 def runThruputPerformance(tframe=1000):
-    """Automated Throughput Performance Test Runner"""
+    """Standalone Throughput Performance Test Runner"""
     SKIP_FRAMES = 15
     monitor = PerformanceMonitor()
 
@@ -790,9 +789,6 @@ def runThruputPerformance(tframe=1000):
 
 def runAblation(
     manifest_df: pd.DataFrame,
-    fire_detector: Any,
-    obj_detector: Any,
-    extractor_cls: Any,
     tau_margin: float = 0.15,
     temperatures: list[float] | None = None,
     device: str = "cpu",
@@ -801,9 +797,6 @@ def runAblation(
     Standalone temperature ablation study runner (Unsupervised Confidence Calibration).
     Args:
         manifest_df: Dataset manifest dataframe.
-        fire_detector: Fire detector instance.
-        obj_detector: Object detector instance.
-        extractor_cls: Similarity extractor class.
         tau_margin: Tau margin for thresholding.
         temperatures: Temperature values to test.
         device: Device to run on.
@@ -812,7 +805,11 @@ def runAblation(
         temperatures = [0.001, 0.005, 0.01, 0.015, 0.02, 0.03, 0.05, 0.10, 0.20, 0.50]
 
     Logger.info("Initialising Standalone Temperature Ablation Study (Unlabeled Mode)...")
-    extractor = extractor_cls().to(device)
+    
+    fire_detector=YOLOModel("Service//ObjectDetector//fire.pt")
+    obj_detector=YOLOModel("Service//ObjectDetector//obj1.pt")
+    
+    extractor = GeometricPredicateExtractor().to(device)
     extractor.eval()
 
     raw_sims_list = []
@@ -941,11 +938,14 @@ def runAblation(
 
     return df_results
 
+# =====================================================================
+# MAIN ENTRY POINT
+# =====================================================================
 if __name__ == "__main__":
     SAFE_DIR = "Dataset//evaluation_slices//safe"
     FIRE_DIR = "Dataset//evaluation_slices//fire_present_set//images"
     manifest = build_dataset_manifest(SAFE_DIR, FIRE_DIR)
         
     if len(manifest) > 0:
-        runAblation(manifest,YOLOModel("Service//ObjectDetector//fire.pt"),YOLOModel("Service//ObjectDetector//obj1.pt"),extractor_cls=GeometricPredicateExtractor)
+        runAblation(manifest)
         Logger.flush()
