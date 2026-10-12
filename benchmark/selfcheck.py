@@ -82,27 +82,30 @@ ENTRYPOINTS = [
     "benchmark/test_e1_contracts.py",
 ]
 
-# Binary asset checklist: not kept in the version control (size), but the RUNTIME level of
-# self-containment requires them all.
-# `source` states where to obtain them, so a new branch can be completed quickly.
+# Binary asset checklist: the RUNTIME level of self-containment requires them all, but none of
+# them is carried in the repository. Two distinct reasons, matching the rules in .gitignore:
+#   - the two .pt weights are large (tens of MB), so they are simply not committed;
+#   - the .pkl vector cache is excluded by the blanket `*.pkl` rule.
+# In every case `source` states where to obtain the file, so that a freshly checked-out branch
+# can be completed quickly (see docs/E1_self_contained_branch_paradigm.md section 4).
 ASSETS = [
     {
         "path": "Service/ObjectDetector/fire.pt",
         "required_for": "runtime",
         "source": "项目盘 IGNITE/Service/ObjectDetector/fire.pt",
-        "note": "Flame detection weights (after fine-tuning)",
+        "note": "Flame detection weights (after fine-tuning); not committed because of its size",
     },
     {
         "path": "Service/ObjectDetector/obj1.pt",
         "required_for": "runtime",
         "source": "项目盘 IGNITE/Service/ObjectDetector/obj1.pt",
-        "note": "Environmental object detection weights (after fine-tuning)",
+        "note": "Environmental object detection weights (after fine-tuning); not committed because of its size",
     },
     {
         "path": "Service/Semantic/triplets_cache.pkl",
         "required_for": "runtime",
         "source": "项目盘 IGNITE/Service/Semantic/triplets_cache.pkl",
-        "note": "Triplet vector cache; when missing it is rebuilt by common_knowledge.py (slower, and requires transformers)",
+        "note": "Triplet vector cache; excluded by the `*.pkl` rule in .gitignore, so it is absent from a fresh checkout. When missing it is rebuilt by common_knowledge.py (slower, and requires transformers)",
     },
 ]
 
@@ -290,12 +293,18 @@ def check_placeholders(report: CheckReport) -> None:
     Detect placeholder/corrupted files: a failed network-drive download leaves behind an XML
     error page or a 0-byte file. Such files pass the "existence" check but raise errors at
     runtime, so they must be explicitly blocked.
+
+    One deliberate exception: an empty ``__init__.py`` is the conventional way to mark a
+    directory as a package, so a 0-byte ``__init__.py`` is legitimate and must not be
+    reported. Every other 0-byte ``.py`` file is still treated as corrupted.
     """
     for py in sorted(ROOT.rglob("*.py")):
         rel = py.relative_to(ROOT)
         if any(part.startswith(".") for part in rel.parts) or "__pycache__" in rel.parts:
             continue
         if py.stat().st_size == 0:
+            if py.name == "__init__.py":
+                continue  # an empty package marker is intentional, not corruption
             report.placeholder_files.append(f"{rel} (0 bytes)")
             continue
         head = py.read_text(encoding="utf-8", errors="ignore")[:200]
