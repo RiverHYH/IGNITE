@@ -16,11 +16,11 @@ import argparse
 from Service.ObjectDetector.yolo import YOLOModel
 from Service.Predicate.affordanceEmbedder import GeometricPredicateExtractor
 from app import IGNITE
-from IO_Module.videoCapture import CameraStream
-from IO_Module.logger import Logger
-from IO_Module.throughputMonitor import PerformanceMonitor
-from IO_Module.cameraList import list_cameras_windows
-from IO_Module.boundingBoxDrawer import draw_predictions
+from utils.videoCapture import CameraStream
+from utils.logger import Logger
+from utils.throughputMonitor import PerformanceMonitor
+from utils.cameraList import list_cameras_windows
+from utils.boundingBoxDrawer import draw_predictions
 
 import torch.nn.functional as F
 
