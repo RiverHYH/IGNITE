@@ -1,4 +1,15 @@
 # IGINIE Application Starts Here
+
+# ---------------------------------------------------------------------------
+# HF offline guard -- mirrors test.py.  This must precede the semantic-layer
+# import below: huggingface_hub probes the network at import time, and every
+# failed HEAD request costs 10 s x 5 retries before falling back to the local
+# cache.  setdefault keeps an explicit online run possible.
+# ---------------------------------------------------------------------------
+import os
+os.environ.setdefault("HF_HUB_OFFLINE", "1")
+os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+
 from typing import List
 from utils.logger import Logger
 import cv2

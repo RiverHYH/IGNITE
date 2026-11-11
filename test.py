@@ -1,4 +1,14 @@
 import os
+
+# ---------------------------------------------------------------------------
+# HF offline guard.  The semantic layer loads BAAI/bge-small-en-v1.5 from the
+# local hub cache; without this, every process start pays ~180 s of failed
+# HEAD requests to huggingface.co before falling back to the same cache.
+# setdefault keeps an explicit online run possible: HF_HUB_OFFLINE=0 python ...
+# ---------------------------------------------------------------------------
+os.environ.setdefault("HF_HUB_OFFLINE", "1")
+os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+
 import time
 import cv2
 import numpy as np
@@ -22,7 +32,31 @@ from utils.throughputMonitor import PerformanceMonitor
 from utils.cameraList import list_cameras_windows
 from utils.boundingBoxDrawer import draw_predictions
 
+# D1 / T0-2 -- dataset-integrity pre-flight gate.
+# stdlib-only module, so it imports even when the rest of the environment is broken.
+from datasetGate import run_gate
+
 import torch.nn.functional as F
+
+# ---------------------------------------------------------------------------
+# D1 / T0-2 gate plumbing
+# ---------------------------------------------------------------------------
+# The gate must protect every evaluation entry point, but it must not run twice
+# when __main__ delegates to runExperiment().  Guard it per process instead of
+# duplicating the SHA-256 pass.  _GATE_DONE flips only after a passing run, so a
+# HARD failure keeps propagating on every subsequent attempt.
+_GATE_DONE = False
+
+
+def _run_dataset_gate(safe_dir: str, fire_dir: str) -> None:
+    """Run the DHSO integrity gate once per process."""
+    global _GATE_DONE
+    if _GATE_DONE:
+        Logger.info("Dataset integrity gate: already verified in this process, skipping.")
+        return
+    run_gate(safe_dir, fire_dir, logger=Logger)
+    _GATE_DONE = True
+
 
 def build_dataset_manifest(safe_dir: str, fire_dir: str) -> pd.DataFrame:
     """
@@ -649,7 +683,11 @@ def runExperiment():
     SAFE_DIR = "Dataset//evaluation_slices//safe"
     FIRE_DIR = "Dataset//evaluation_slices//fire_present_set//images"
     YOLO_WEIGHTS = "Service//ObjectDetector//fire.pt"
-    
+
+    # D1 / T0-2 pre-flight gate -- runs BEFORE the backbones are loaded, so a
+    # drifted freeze set fails fast instead of after minutes of GPU work.
+    _run_dataset_gate(SAFE_DIR, FIRE_DIR)
+
     Logger.info("Initializing perception backbones and IGNITE framework...")
     yolo_instance = YOLOModel(YOLO_WEIGHTS)
     ignite_instance = IGNITE()
@@ -944,8 +982,13 @@ def runAblation(
 if __name__ == "__main__":
     SAFE_DIR = "Dataset//evaluation_slices//safe"
     FIRE_DIR = "Dataset//evaluation_slices//fire_present_set//images"
+
+    # D1 / T0-2 pre-flight gate: refuse to evaluate on a drifted freeze set.
+    # Idempotent -- runExperiment() calls the same guard, so this costs one pass.
+    _run_dataset_gate(SAFE_DIR, FIRE_DIR)
+
     manifest = build_dataset_manifest(SAFE_DIR, FIRE_DIR)
         
     if len(manifest) > 0:
-        runAblation(manifest)
+        runExperiment()
         Logger.flush()
